@@ -22,7 +22,7 @@ def recover_system_dialog(root):
         return False
     buttons=[n for n in root.iter("node") if n.get("resource-id")=="android:id/aerr_close"]
     if not buttons: raise AssertionError("Quickstep ANR dialog lacks Close app")
-    coords=re.findall(r"\\d+",buttons[0].get("bounds",""))
+    coords=re.findall(r"\d+",buttons[0].get("bounds",""))
     if len(coords)!=4: raise AssertionError("Quickstep ANR close button missing bounds")
     x1,y1,x2,y2=map(int,coords)
     adb("shell","input","tap",str((x1+x2)//2),str((y1+y2)//2))
