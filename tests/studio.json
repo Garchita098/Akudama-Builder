@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "action": "assert_text",
+      "text": "AKUDAMA STUDIO"
+    },
+    {
+      "action": "tap_text",
+      "text": "Проекты"
+    },
+    {
+      "action": "assert_text",
+      "text": "Legacy Test"
+    },
+    {
+      "action": "assert_changed"
+    }
+  ]
+}
