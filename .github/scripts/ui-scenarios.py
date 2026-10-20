@@ -14,7 +14,20 @@ def capture(label):
     adb("shell","uiautomator","dump","/sdcard/window.xml")
     xml=subprocess.run(["adb","exec-out","cat","/sdcard/window.xml"],capture_output=True,check=True).stdout
     (out/(label+".xml")).write_bytes(xml)
-    return ET.fromstring(xml)
+    root=ET.fromstring(xml)
+    return root
+def recover_system_dialog(root):
+    """Dismiss Android emulator launcher ANR, not application failures."""
+    if not any("Quickstep isn't responding" in n.get("text","") for n in root.iter("node")):
+        return False
+    buttons=[n for n in root.iter("node") if n.get("resource-id")=="android:id/aerr_close"]
+    if not buttons: raise AssertionError("Quickstep ANR dialog lacks Close app")
+    coords=re.findall(r"\\d+",buttons[0].get("bounds",""))
+    if len(coords)!=4: raise AssertionError("Quickstep ANR close button missing bounds")
+    x1,y1,x2,y2=map(int,coords)
+    adb("shell","input","tap",str((x1+x2)//2),str((y1+y2)//2))
+    time.sleep(3)
+    return True
 def nodes(root):
     return list(root.iter("node"))
 def matching(root,text):
@@ -25,6 +38,9 @@ try:
     for i,step in enumerate(steps,1):
         action=step["action"]
         root=capture(f"step-{i:02d}-before")
+        if recover_system_dialog(root):
+            report.append("- RECOVERED emulator Quickstep ANR dialog")
+            root=capture(f"step-{i:02d}-retry")
         if action=="tap_text":
             matches=[n for n in matching(root,step["text"]) if n.get("enabled")=="true" and n.get("clickable")=="true"]
             if not matches: raise AssertionError("Clickable control not found: "+step["text"])
