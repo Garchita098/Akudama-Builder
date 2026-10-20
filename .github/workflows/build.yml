@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      PROJECT: ${{ github.event.inputs.project || 'legacy' }}
+      PROJECT: ${{ github.event.inputs.project || 'studio' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -65,7 +65,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Akudama-APK-${{ github.event.inputs.project || 'legacy' }}
+          name: Akudama-APK-${{ github.event.inputs.project || 'studio' }}
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
@@ -74,8 +74,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      PROJECT: ${{ github.event.inputs.project || 'legacy' }}
-      TEST_CONFIG: tests/${{ github.event.inputs.project || 'legacy' }}.json
+      PROJECT: ${{ github.event.inputs.project || 'studio' }}
+      TEST_CONFIG: tests/${{ github.event.inputs.project || 'studio' }}.json
     steps:
       - name: Checkout test scripts
         uses: actions/checkout@v4
@@ -95,7 +95,7 @@ jobs:
       - name: Download built APK
         uses: actions/download-artifact@v4
         with:
-          name: Akudama-APK-${{ github.event.inputs.project || 'legacy' }}
+          name: Akudama-APK-${{ github.event.inputs.project || 'studio' }}
           path: apk
 
       - name: Enable KVM acceleration
@@ -118,6 +118,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Android-Emulator-Diagnostics-${{ github.event.inputs.project || 'legacy' }}
+          name: Android-Emulator-Diagnostics-${{ github.event.inputs.project || 'studio' }}
           path: test-results/
           if-no-files-found: ignore
