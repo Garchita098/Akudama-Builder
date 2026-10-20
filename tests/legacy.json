@@ -1,0 +1,8 @@
+{
+  "steps": [
+    {"action": "assert_text", "text": "Первый APK успешно установлен!"},
+    {"action": "tap_text", "text": "ПРОВЕРИТЬ"},
+    {"action": "assert_text", "text": "Работает!"},
+    {"action": "assert_changed"}
+  ]
+}
