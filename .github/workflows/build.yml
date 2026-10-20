@@ -68,6 +68,7 @@ jobs:
     timeout-minutes: 35
     env:
       PROJECT: ${{ github.event.inputs.project || 'legacy' }}
+      TEST_CONFIG: tests/${{ github.event.inputs.project || 'legacy' }}.json
     steps:
       - name: Checkout test scripts
         uses: actions/checkout@v4
@@ -104,10 +105,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            export TEST_CONFIG="tests/$PROJECT.json"
-            test -f "$TEST_CONFIG" || { echo "::error::Missing test scenario $TEST_CONFIG"; exit 1; }
-            bash .github/scripts/test-emulator.sh
+          script: bash .github/scripts/test-emulator.sh
 
       - name: Save emulator diagnostics
         if: always()
