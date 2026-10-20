@@ -41,10 +41,10 @@ try:
         a=node.attrib
         if a.get('clickable')!='true' or a.get('enabled')!='true':
             continue
-        bounds=re.fullmatch(r'\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]',a.get('bounds',''))
-        if not bounds:
+        coords=[int(v) for v in re.findall('[0-9]+', a.get('bounds',''))]
+        if len(coords)!=4:
             continue
-        x1,y1,x2,y2=map(int,bounds.groups())
+        x1,y1,x2,y2=coords
         if x2<=x1 or y2<=y1 or y1<100:
             continue
         candidates.append(((x2-x1)*(y2-y1), (x1+x2)//2, (y1+y2)//2, a.get('text','')))
