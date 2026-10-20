@@ -2,7 +2,7 @@
   "steps": [
     {
       "action": "assert_text",
-      "text": "AKUDAMA STUDIO"
+      "text": "AKUDAMA"
     },
     {
       "action": "tap_text",
@@ -11,6 +11,17 @@
     {
       "action": "assert_text",
       "text": "Legacy Test"
+    },
+    {
+      "action": "assert_changed"
+    },
+    {
+      "action": "tap_text",
+      "text": "Сборки"
+    },
+    {
+      "action": "assert_text",
+      "text": "ПОДКЛЮЧИТЬ GITHUB"
     },
     {
       "action": "assert_changed"
