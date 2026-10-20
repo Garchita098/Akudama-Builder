@@ -31,7 +31,7 @@ public class MainActivity extends Activity {
  ScrollView scroll=new ScrollView(this);body=new LinearLayout(this);body.setPadding(dp(3),dp(16),dp(3),dp(16));body.setOrientation(1);scroll.addView(body);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
  TextView section=text(page,23);body.addView(section);gap();
  String url="https://github.com/Garchita098/Akudama-Builder";
- if(page.equals("Обзор")){card("AKUDAMA BUILDER","Центр управления Android-проектами");card("Сборка и тесты","GitHub Actions собирает APK и проверяет его в эмуляторе");link("ОТКРЫТЬ СБОРКИ",url+"/actions");}
+ if(page.equals("Обзор")){card("AKUDAMA BUILDER","Центр управления Android-проектами");card("Сборка и тесты","GitHub Actions собирает APK и проверяет его в эмуляторе");link("ОТКРЫТЬ СБОРКИ",url+"/actions");Button projects=new Button(this);projects.setText("ПРОЕКТЫ");projects.setAllCaps(false);projects.setOnClickListener(v->show("Проекты"));body.addView(projects,new LinearLayout.LayoutParams(-1,dp(56)));}
  else if(page.equals("Проекты")){card("Akudama Studio","Мобильный центр разработки · версия 0.1");card("Legacy Test","Наше первое тестовое приложение");link("ОТКРЫТЬ ПРОЕКТЫ",url+"/tree/main/projects");}
  else if(page.equals("Сборки")){card("Последние сборки","Список доступен в GitHub Actions");link("ОТКРЫТЬ ACTIONS",url+"/actions");}
  else {card("Отчёты","Скриншоты и логи Android-эмулятора доступны в артефактах каждой сборки");card("Безопасность","Токен GitHub не хранится в APK");link("ПОСМОТРЕТЬ ОТЧЁТЫ",url+"/actions");}
