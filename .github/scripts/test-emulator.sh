@@ -30,42 +30,49 @@ adb shell pidof "$PACKAGE" > test-results/pid-before.txt
 capture before-tap
 printf -- '- ✅ Application launched and stayed running\n' >> "$REPORT"
 
-# Inspect the foreground UI. Select the first enabled clickable control in
-# the app's content area (not the status or navigation bars).
+# Strict test for the current demo project.
+# Update expected labels when building a different app.
+export EXPECT_BUTTON_TEXT="ПРОВЕРИТЬ"
+export EXPECT_AFTER_TEXT="Работает!"
 XY=$(python3 - <<'PY'
-import re, xml.etree.ElementTree as ET
-try:
-    root=ET.parse('test-results/before-tap.xml').getroot()
-    candidates=[]
-    for node in root.iter('node'):
-        a=node.attrib
-        if a.get('clickable')!='true' or a.get('enabled')!='true':
-            continue
-        coords=[int(v) for v in re.findall('[0-9]+', a.get('bounds',''))]
-        if len(coords)!=4:
-            continue
+import os, re, sys, xml.etree.ElementTree as ET
+root=ET.parse('test-results/before-tap.xml').getroot()
+target=os.environ['EXPECT_BUTTON_TEXT'].casefold()
+for node in root.iter('node'):
+    a=node.attrib
+    if a.get('clickable')!='true' or a.get('enabled')!='true':
+        continue
+    text=(a.get('text','')+' '+a.get('content-desc','')).casefold()
+    if target not in text:
+        continue
+    coords=[int(v) for v in re.findall(r'\d+',a.get('bounds',''))]
+    if len(coords)==4:
         x1,y1,x2,y2=coords
-        if x2<=x1 or y2<=y1 or y1<100:
-            continue
-        candidates.append(((x2-x1)*(y2-y1), (x1+x2)//2, (y1+y2)//2, a.get('text','')))
-    if candidates:
-        _,x,y,label=sorted(candidates)[0]
-        print(f'{x} {y}')
-except Exception as e:
-    print(f'UI inspection failed: {e}',file=__import__('sys').stderr)
+        if x2>x1 and y2>y1:
+            print(f'{(x1+x2)//2} {(y1+y2)//2}')
+            sys.exit(0)
+sys.exit(2)
 PY
-)
-if [[ "$XY" =~ ^[0-9]+\ [0-9]+$ ]]; then
-  read -r X Y <<< "$XY"
-  echo "Tapping clickable UI control at ($X, $Y)"
-  adb shell input tap "$X" "$Y"
-  sleep 3
-  adb shell pidof "$PACKAGE" > test-results/pid-after.txt
-  capture after-tap
-  printf -- '- ✅ Clickable control tapped at (%s, %s); process remains alive\n' "$X" "$Y" >> "$REPORT"
-else
-  printf -- '- ℹ️ No accessible clickable UI control found; tap test skipped\n' >> "$REPORT"
-fi
+) || { echo "::error::Expected clickable button not found"; exit 1; }
+read -r X Y <<< "$XY"
+adb shell input tap "$X" "$Y"
+sleep 3
+adb shell pidof "$PACKAGE" > test-results/pid-after.txt
+capture after-tap
+test -s test-results/after-tap.xml || { echo "::error::Missing UI after tap"; exit 1; }
+python3 - <<'PY'
+import os,sys,xml.etree.ElementTree as ET
+def tree(path):
+    return '\n'.join((n.get('text','')+' '+n.get('content-desc','')) for n in ET.parse(path).getroot().iter('node'))
+before=tree('test-results/before-tap.xml')
+after=tree('test-results/after-tap.xml')
+expected=os.environ['EXPECT_AFTER_TEXT']
+if expected.casefold() not in after.casefold() or before==after:
+    print('ERROR: Expected UI text not displayed or UI tree did not change')
+    sys.exit(1)
+print('Verified UI changed and expected text appeared')
+PY
+printf -- '- ✅ Button found, tapped, and expected UI change verified\n' >> "$REPORT"
 
 adb logcat -d -v time > test-results/logcat.txt
 if grep -A 25 'FATAL EXCEPTION' test-results/logcat.txt | grep -F "Process: $PACKAGE,"; then
