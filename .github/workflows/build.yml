@@ -60,7 +60,23 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build APK
-        run: gradle --no-daemon assembleDebug
+        shell: bash
+        run: |
+          mkdir -p build-results
+          set -o pipefail
+          gradle --no-daemon assembleDebug 2>&1 | tee build-results/build.log
+
+      - name: Summarize build diagnostics
+        if: always()
+        run: python3 .github/scripts/build-report.py
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Akudama-Build-Diagnostics-${{ github.event.inputs.project || 'studio' }}
+          path: build-results/
+          if-no-files-found: ignore
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
