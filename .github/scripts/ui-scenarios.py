@@ -10,12 +10,30 @@ report=["# Android UI checks",""]
 def adb(*args,check=True):
     return subprocess.run(["adb",*args],capture_output=True,text=True,check=check)
 def capture(label):
-    subprocess.run(["adb","exec-out","screencap","-p"],stdout=(out/(label+".png")).open("wb"),check=True)
-    adb("shell","uiautomator","dump","/sdcard/window.xml")
-    xml=subprocess.run(["adb","exec-out","cat","/sdcard/window.xml"],capture_output=True,check=True).stdout
-    (out/(label+".xml")).write_bytes(xml)
-    root=ET.fromstring(xml)
-    return root
+    # Android's UIAutomator occasionally returns an empty dump while the
+    # emulator is still rendering its launcher or first app frame.
+    last_error="UI hierarchy unavailable"
+    for attempt in range(5):
+        try:
+            subprocess.run(["adb","exec-out","screencap","-p"],
+                stdout=(out/(label+".png")).open("wb"),check=True,timeout=20)
+            result=adb("shell","uiautomator","dump","/sdcard/window.xml",check=False)
+            raw=subprocess.run(["adb","exec-out","cat","/sdcard/window.xml"],
+                capture_output=True,check=False,timeout=20)
+            xml=raw.stdout
+            # Some adb devices prepend diagnostics; retain only the XML.
+            start=xml.find(b"<?xml")
+            if start<0: start=xml.find(b"<hierarchy")
+            if start<0: raise ValueError("No XML hierarchy in UI dump; "+
+                result.stdout[-160:]+result.stderr[-160:])
+            xml=xml[start:]
+            root=ET.fromstring(xml)
+            (out/(label+".xml")).write_bytes(xml)
+            return root
+        except (ValueError,ET.ParseError,subprocess.SubprocessError) as e:
+            last_error=str(e)
+            time.sleep(2)
+    raise AssertionError("UI hierarchy unavailable after 5 attempts: "+last_error)
 def recover_system_dialog(root):
     """Dismiss Android emulator launcher ANR, not application failures."""
     if not any("Quickstep isn't responding" in n.get("text","") for n in root.iter("node")):
