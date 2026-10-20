@@ -4,7 +4,7 @@ import argparse, json, pathlib, re
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 def generate(spec, root=ROOT):
-    slug=spec["slug"]
+    slug=spec["slug"].strip().lower().replace("-", "_").replace(" ", "_")
     if not re.fullmatch(r"[a-z][a-z0-9_]{2,29}",slug):
         raise ValueError("slug must be 3-30 lowercase letters, digits or underscores")
     label=spec.get("title",slug)
