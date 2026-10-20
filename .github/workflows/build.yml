@@ -6,6 +6,7 @@ on:
     paths:
       - 'project.zip'
       - '.github/workflows/build.yml'
+      - '.github/scripts/**'
 
 permissions:
   contents: read
