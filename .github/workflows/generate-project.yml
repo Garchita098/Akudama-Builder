@@ -1,0 +1,43 @@
+name: Generate Android Project
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: 'Unique project slug (lowercase letters, numbers, underscores)'
+        required: true
+        type: string
+      title:
+        description: 'Displayed Android application title'
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: write
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Generate project and tests
+        env:
+          SLUG: ${{ inputs.slug }}
+          TITLE: ${{ inputs.title }}
+        run: python3 tools/create_project.py --slug "$SLUG" --title "$TITLE"
+      - name: Commit generated files
+        env:
+          SLUG: ${{ inputs.slug }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "projects/$SLUG" "tests/$SLUG.json"
+          git commit -m "Generate Android project $SLUG"
+          git push
+      - name: Launch APK build and emulator tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLUG: ${{ inputs.slug }}
+        run: gh workflow run build.yml --ref main -f project="$SLUG"
