@@ -14,6 +14,7 @@ on:
       - '.github/workflows/build.yml'
       - '.github/scripts/**'
       - 'tests/**'
+      - 'projects/**'
 
 permissions:
   contents: read
@@ -31,9 +32,15 @@ jobs:
       - name: Extract uploaded Android project
         run: |
           [[ "$PROJECT" =~ ^[A-Za-z0-9_-]+$ ]] || exit 1
-          if [ "$PROJECT" = legacy ]; then ZIP=project.zip; else ZIP="projects/$PROJECT/project.zip"; fi
-          test -f "$ZIP" || { echo "::error::Missing $ZIP"; exit 1; }
-          unzip -o "$ZIP" -d .
+          if [ "$PROJECT" = legacy ]; then
+            unzip -o project.zip -d .
+          elif [ -f "projects/$PROJECT/project.zip" ]; then
+            unzip -o "projects/$PROJECT/project.zip" -d .
+          elif [ -f "projects/$PROJECT/settings.gradle" ]; then
+            cp -a "projects/$PROJECT/." .
+          else
+            echo "::error::Project $PROJECT not found"; exit 1
+          fi
 
       - name: Setup Java
         uses: actions/setup-java@v4
