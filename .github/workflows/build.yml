@@ -2,11 +2,18 @@ name: Build and Test Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      project:
+        description: 'Project name (legacy or folder name under projects/)'
+        required: true
+        default: 'legacy'
+        type: string
   push:
     paths:
       - 'project.zip'
       - '.github/workflows/build.yml'
       - '.github/scripts/**'
+      - 'tests/**'
 
 permissions:
   contents: read
@@ -15,12 +22,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      PROJECT: ${{ github.event.inputs.project || 'legacy' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Extract uploaded Android project
-        run: unzip -o project.zip -d .
+        run: |
+          [[ "$PROJECT" =~ ^[A-Za-z0-9_-]+$ ]] || exit 1
+          if [ "$PROJECT" = legacy ]; then ZIP=project.zip; else ZIP="projects/$PROJECT/project.zip"; fi
+          test -f "$ZIP" || { echo "::error::Missing $ZIP"; exit 1; }
+          unzip -o "$ZIP" -d .
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -45,7 +58,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Akudama-APK
+          name: Akudama-APK-${{ github.event.inputs.project || 'legacy' }}
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
@@ -53,6 +66,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      PROJECT: ${{ github.event.inputs.project || 'legacy' }}
     steps:
       - name: Checkout test scripts
         uses: actions/checkout@v4
@@ -72,7 +87,7 @@ jobs:
       - name: Download built APK
         uses: actions/download-artifact@v4
         with:
-          name: Akudama-APK
+          name: Akudama-APK-${{ github.event.inputs.project || 'legacy' }}
           path: apk
 
       - name: Enable KVM acceleration
@@ -89,12 +104,15 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: bash .github/scripts/test-emulator.sh
+          script: |
+            export TEST_CONFIG="tests/$PROJECT.json"
+            test -f "$TEST_CONFIG" || { echo "::error::Missing test scenario $TEST_CONFIG"; exit 1; }
+            bash .github/scripts/test-emulator.sh
 
       - name: Save emulator diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Android-Emulator-Diagnostics
+          name: Android-Emulator-Diagnostics-${{ github.event.inputs.project || 'legacy' }}
           path: test-results/
           if-no-files-found: ignore
