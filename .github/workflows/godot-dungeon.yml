@@ -1,0 +1,58 @@
+name: Build Living Dungeon Godot APK
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "projects/dungeon_godot/**"
+      - ".github/workflows/godot-dungeon.yml"
+permissions:
+  contents: read
+jobs:
+  export-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    container:
+      image: barichello/godot-ci:4.4.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare Godot export templates and Android debugging key
+        shell: bash
+        run: |
+          set -eux
+          mkdir -p "$HOME/.local/share/godot/export_templates" "$HOME/.android"
+          if [ -d "/root/.local/share/godot/export_templates/4.4.1.stable" ]; then
+            cp -a /root/.local/share/godot/export_templates/4.4.1.stable "$HOME/.local/share/godot/export_templates/" || true
+          fi
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+      - name: Import and validate project
+        shell: bash
+        run: |
+          set -o pipefail
+          godot --headless --path projects/dungeon_godot --editor --quit 2>&1 | tee godot-import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" godot-import.log; then exit 1; fi
+      - name: Export playable Android APK
+        shell: bash
+        env:
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /github/home/.android/debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+        run: |
+          mkdir -p projects/dungeon_godot/build
+          godot --headless --path projects/dungeon_godot --export-debug Android build/living-dungeon-godot.apk
+          test -s projects/dungeon_godot/build/living-dungeon-godot.apk
+      - name: Upload Living Dungeon Godot APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Living-Dungeon-Godot-APK
+          path: projects/dungeon_godot/build/living-dungeon-godot.apk
+          if-no-files-found: error
+      - name: Upload import diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Living-Dungeon-Godot-Diagnostics
+          path: godot-import.log
+          if-no-files-found: ignore
