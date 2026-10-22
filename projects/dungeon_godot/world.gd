@@ -26,6 +26,7 @@ var god_power := 100
 var god_button: Button
 var god_team_button: Button
 var effect_marks: Array = []
+var tool_hint: Label
 var turn := 0
 var deaths := 0
 var rng := RandomNumberGenerator.new()
@@ -69,13 +70,14 @@ func _ready() -> void:
     status.add_theme_font_size_override("font_size", 19)
     headbox.add_child(status)
     var bottom := PanelContainer.new()
-    bottom.position = Vector2(10, 1000)
-    bottom.size = Vector2(700, 265)
+    bottom.position = Vector2(8, 930)
+    bottom.size = Vector2(704, 335)
     overlay.add_child(bottom)
     var stack := VBoxContainer.new()
     bottom.add_child(stack)
     details = Label.new()
-    details.add_theme_font_size_override("font_size", 18)
+    details.add_theme_font_size_override("font_size", 23)
+    details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     stack.add_child(details)
     var buttons := HBoxContainer.new()
     stack.add_child(buttons)
@@ -103,8 +105,10 @@ func _ready() -> void:
     god_team_button.pressed.connect(cycle_god_team)
     powers.add_child(god_team_button)
     var action_hint := Label.new()
-    action_hint.text = "God mode: choose tool, then tap the map"
-    action_hint.add_theme_font_size_override("font_size",16)
+    action_hint.text = "Choose a power, then tap a tile on the map"
+    action_hint.add_theme_font_size_override("font_size",21)
+    tool_hint = action_hint
+    tool_hint.add_theme_color_override("font_color",Color("#ffe0a3"))
     stack.add_child(action_hint)
     var save_button := Button.new()
     save_button.text = "Save"
@@ -179,6 +183,7 @@ func accessible(p: Vector2i) -> bool:
 
 func _process(delta: float) -> void:
     if speed == 0:
+        queue_redraw()
         return
     sim_accum += delta * speed
     while sim_accum >= 0.55:
@@ -189,7 +194,7 @@ func _process(delta: float) -> void:
 func simulate() -> void:
     turn += 1
     god_power = mini(100, god_power + 1)
-    effect_marks = effect_marks.filter(func(e): return int(e.until) > turn)
+    effect_marks = effect_marks.filter(func(e): return int(e.until_ms) > Time.get_ticks_msec())
     update_economy()
     update_monsters()
     update_magic()
@@ -555,8 +560,19 @@ func _draw() -> void:
         draw_rect(Rect2(Vector2.ZERO,Vector2(GRID)*TILE),Color(0.22,0.02,0.12,0.10 if calamity == 2 else 0.05))
     for mark in effect_marks:
         var center: Vector2 = Vector2(mark.p) * TILE + Vector2(15,15)
-        var power_color := Color("#ffd37e") if int(mark.kind) == 1 else Color("#e14c75")
-        draw_arc(center, float(10 + (int(mark.until)-turn)*2),0,TAU,32,power_color,3)
+        var time_left: float = clampf(float(int(mark.until_ms) - Time.get_ticks_msec()) / 1350.0,0.0,1.0)
+        var radius: float = lerpf(10.0,75.0,1.0-time_left)
+        var kind: int = int(mark.kind)
+        var power_color: Color = Color("#fff2a5") if kind == 4 else (Color("#72ddff") if kind == 5 else Color("#ec75e0"))
+        draw_circle(center,14.0 + 30.0*time_left,Color(power_color.r,power_color.g,power_color.b,0.20*time_left))
+        draw_arc(center,radius,0,TAU,40,Color(power_color.r,power_color.g,power_color.b,time_left),5)
+        if kind == 4:
+            draw_line(center-Vector2(56,180)*time_left,center,Color("#ffb23a"),maxf(3.0,14.0*time_left))
+            draw_circle(center,9.0+28.0*time_left,Color("#ff7b2e"))
+            draw_arc(center,radius*0.75,0,TAU,32,Color("#ffe89b"),3)
+        elif kind == 5:
+            draw_rect(Rect2(Vector2(mark.p)*TILE,Vector2(TILE,TILE)),Color("#9ee8ff"))
+            draw_arc(center,24,0,TAU,20,Color("#ffffff"),3)
     var tween: float = clamp(sim_accum / 0.55, 0.0, 1.0)
     tween = tween * tween * (3.0 - 2.0 * tween)
     for m in monsters:
@@ -584,7 +600,10 @@ func _draw() -> void:
 func cycle_god_mode() -> void:
     god_mode = (god_mode + 1) % 7
     god_button.text = ["Select","Spawn","Monster","Bless","Strike","Wall","Plague"][god_mode]
-    events = "Tool: " + god_button.text + " | Tap the map"
+    var costs := [0,12,20,8,15,5,25]
+    var descriptions := ["Inspect NPCs","Summon faction soldier","Create a powerful monster","Heal allies in a 3-tile area","Meteor: 3-tile explosion","Add or remove a stone wall","Unleash a plague"]
+    tool_hint.text = descriptions[god_mode] + "   |   Cost: " + str(costs[god_mode]) + "   |   Tap map"
+    events = "Selected: " + god_button.text
     refresh()
 
 func cycle_god_team() -> void:
@@ -625,13 +644,15 @@ func use_god_power(p: Vector2i) -> void:
                 m.hp -= 8
     elif god_mode == 5:
         if occupied_tile(p) or monster_at(p):
+            events = "Tile occupied; choose an empty square"
+            refresh()
             return
         terrain[p.y][p.x] = 1 if terrain[p.y][p.x] == 0 else 0
     elif god_mode == 6:
         calamity = 1
         catastrophe_until = turn + 40
     god_power -= cost
-    effect_marks.append({"p":p,"kind":god_mode,"until":turn+9})
+    effect_marks.append({"p":p,"kind":god_mode,"until_ms":Time.get_ticks_msec()+1350})
     events = ["","A hero arrives","A boss manifests","Divine blessing","Meteor strike","Terrain reshaped","Plague unleashed"][god_mode]
     remember(events)
     refresh()
