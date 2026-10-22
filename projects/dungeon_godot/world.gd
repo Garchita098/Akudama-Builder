@@ -339,7 +339,7 @@ func _draw() -> void:
         if int(node.amount) <= 0:
             continue
         var p: Vector2 = Vector2(node.p)*TILE
-        var tint := [Color("#94704e"),Color("#8b96a6"),Color("#899c56")][int(node.type)]
+        var tint: Color = [Color("#94704e"),Color("#8b96a6"),Color("#899c56")][int(node.type)]
         draw_circle(p + Vector2(15,15),5.0,tint)
     var tween: float = clamp(sim_accum / 0.55, 0.0, 1.0)
     tween = tween * tween * (3.0 - 2.0 * tween)
