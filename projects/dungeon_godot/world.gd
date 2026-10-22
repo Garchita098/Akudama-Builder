@@ -11,6 +11,10 @@ const PROFESSIONS := ["Warrior","Scout","Guardian","Worker","Hunter"]
 const EQUIPMENT := ["Rusty sword","Iron spear","Leather armor","Hunter bow","Steel blade"]
 var terrain: Array = []
 var biomes: Array = []
+var minimap: TextureRect
+var minimap_img: Image
+var minimap_tex: ImageTexture
+var minimap_turn := 0
 var fighters: Array = []
 var settlements: Array = []
 var resource_nodes: Array = []
@@ -70,6 +74,19 @@ func _ready() -> void:
     status = Label.new()
     status.add_theme_font_size_override("font_size", 19)
     headbox.add_child(status)
+    var map_border := PanelContainer.new()
+    map_border.position = Vector2(530,165)
+    map_border.size = Vector2(174,174)
+    overlay.add_child(map_border)
+    minimap = TextureRect.new()
+    minimap.custom_minimum_size = Vector2(166,166)
+    minimap.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+    minimap.stretch_mode = TextureRect.STRETCH_SCALE
+    minimap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    map_border.add_child(minimap)
+    minimap_img = Image.create(GRID.x,GRID.y,false,Image.FORMAT_RGBA8)
+    minimap_tex = ImageTexture.create_from_image(minimap_img)
+    minimap.texture = minimap_tex
     var bottom := PanelContainer.new()
     bottom.position = Vector2(8, 930)
     bottom.size = Vector2(704, 335)
@@ -173,6 +190,7 @@ func generate() -> void:
                 fighters.append(make_person(pos,i % 3,i,1 if i % 4 == 0 else 0))
                 break
     events = "Three factions enter the dungeon."
+    update_minimap()
     selected = -1
     refresh()
     queue_redraw()
@@ -509,7 +527,27 @@ func update_economy() -> void:
                 fighters.append(make_person(spawn,team,next_unit_id,1 if population % 4 == 0 else 0))
                 next_unit_id += 1
 
+func update_minimap() -> void:
+    if minimap_img == null or terrain.size() != GRID.y:
+        return
+    var shades := [Color("#42495b"),Color("#35523e"),Color("#503c53"),Color("#674831")]
+    for y in range(GRID.y):
+        for x in range(GRID.x):
+            var color: Color = Color("#171d27") if terrain[y][x] == 1 else shades[int(biomes[y][x])]
+            minimap_img.set_pixel(x,y,color)
+    for b in settlements:
+        var bp: Vector2i = b.p
+        minimap_img.set_pixel(bp.x,bp.y,FACTIONS[int(b.team)])
+    for f in fighters:
+        var fp: Vector2i = f.p
+        if fp.x >= 0 and fp.x < GRID.x and fp.y >= 0 and fp.y < GRID.y:
+            minimap_img.set_pixel(fp.x,fp.y,FACTIONS[int(f.team)])
+    minimap_tex.update(minimap_img)
+
 func refresh() -> void:
+    minimap_turn += 1
+    if minimap_turn % 5 == 0:
+        update_minimap()
     if status == null:
         return
     var counts := [0,0,0]
@@ -791,6 +829,7 @@ func load_world() -> void:
     seed_value = int(data.seed)
     selected = -1
     events = "World loaded."
+    update_minimap()
     refresh()
 
 func _unhandled_input(event: InputEvent) -> void:
