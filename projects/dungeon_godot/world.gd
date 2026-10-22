@@ -20,6 +20,12 @@ var monsters: Array = []
 var ruins: Array = []
 var calamity := 0
 var catastrophe_until := 0
+var god_mode := 0
+var god_team := 0
+var god_power := 100
+var god_button: Button
+var god_team_button: Button
+var effect_marks: Array = []
 var turn := 0
 var deaths := 0
 var rng := RandomNumberGenerator.new()
@@ -55,7 +61,7 @@ func _ready() -> void:
     var headbox := VBoxContainer.new()
     header.add_child(headbox)
     var title := Label.new()
-    title.text = "LIVING DUNGEON  /  GODOT 0.7"
+    title.text = "LIVING DUNGEON  /  GODOT 0.8"
     title.add_theme_font_size_override("font_size", 24)
     title.add_theme_color_override("font_color", Color("#e2c49a"))
     headbox.add_child(title)
@@ -63,8 +69,8 @@ func _ready() -> void:
     status.add_theme_font_size_override("font_size", 19)
     headbox.add_child(status)
     var bottom := PanelContainer.new()
-    bottom.position = Vector2(10, 1080)
-    bottom.size = Vector2(700, 180)
+    bottom.position = Vector2(10, 1000)
+    bottom.size = Vector2(700, 265)
     overlay.add_child(bottom)
     var stack := VBoxContainer.new()
     bottom.add_child(stack)
@@ -86,6 +92,20 @@ func _ready() -> void:
     new_button.text = "New World"
     new_button.pressed.connect(generate)
     buttons.add_child(new_button)
+    var powers := HBoxContainer.new()
+    stack.add_child(powers)
+    god_button = Button.new()
+    god_button.text = "Select"
+    god_button.pressed.connect(cycle_god_mode)
+    powers.add_child(god_button)
+    god_team_button = Button.new()
+    god_team_button.text = "Blue"
+    god_team_button.pressed.connect(cycle_god_team)
+    powers.add_child(god_team_button)
+    var action_hint := Label.new()
+    action_hint.text = "God mode: choose tool, then tap the map"
+    action_hint.add_theme_font_size_override("font_size",16)
+    stack.add_child(action_hint)
     var save_button := Button.new()
     save_button.text = "Save"
     save_button.pressed.connect(save_world)
@@ -110,6 +130,8 @@ func generate() -> void:
     ruins.clear()
     calamity = 0
     catastrophe_until = 0
+    effect_marks.clear()
+    god_power = 100
     resource_nodes.clear()
     claims.clear()
     for y in range(GRID.y):
@@ -166,6 +188,8 @@ func _process(delta: float) -> void:
 
 func simulate() -> void:
     turn += 1
+    god_power = mini(100, god_power + 1)
+    effect_marks = effect_marks.filter(func(e): return int(e.until) > turn)
     update_economy()
     update_monsters()
     update_magic()
@@ -484,7 +508,7 @@ func refresh() -> void:
     var economy := "  |  "
     for b in settlements:
         economy += TEAM_NAMES[int(b.team)].substr(0,1) + ":F" + str(b.food) + "/W" + str(b.wood) + "/S" + str(b.stone) + " "
-    details.text = events + "\n" + economy
+    details.text = events + "\n" + economy + " | GOD " + str(god_power)
     if selected >= 0:
         for f in fighters:
             if f.id == selected:
@@ -529,6 +553,10 @@ func _draw() -> void:
         draw_rect(Rect2(rp + Vector2(8,8),Vector2(14,14)),Color("#191126"))
     if calamity != 0:
         draw_rect(Rect2(Vector2.ZERO,Vector2(GRID)*TILE),Color(0.22,0.02,0.12,0.10 if calamity == 2 else 0.05))
+    for mark in effect_marks:
+        var center: Vector2 = Vector2(mark.p) * TILE + Vector2(15,15)
+        var power_color := Color("#ffd37e") if int(mark.kind) == 1 else Color("#e14c75")
+        draw_arc(center, float(10 + (int(mark.until)-turn)*2),0,TAU,32,power_color,3)
     var tween: float = clamp(sim_accum / 0.55, 0.0, 1.0)
     tween = tween * tween * (3.0 - 2.0 * tween)
     for m in monsters:
@@ -553,6 +581,71 @@ func _draw() -> void:
         if f.id == selected:
             draw_arc(p + Vector2(12,12),15,0,TAU,24,Color("#f5d789"),2)
 
+func cycle_god_mode() -> void:
+    god_mode = (god_mode + 1) % 7
+    god_button.text = ["Select","Spawn","Monster","Bless","Strike","Wall","Plague"][god_mode]
+    events = "Tool: " + god_button.text + " | Tap the map"
+    refresh()
+
+func cycle_god_team() -> void:
+    god_team = (god_team + 1) % 3
+    god_team_button.text = ["Blue","Red","Green"][god_team]
+    refresh()
+
+func use_god_power(p: Vector2i) -> void:
+    if p.x < 1 or p.y < 1 or p.x >= GRID.x-1 or p.y >= GRID.y-1:
+        return
+    var cost := [0,12,20,8,15,5,25][god_mode]
+    if god_power < cost:
+        events = "Not enough divine energy (" + str(cost) + ")"
+        refresh()
+        return
+    if god_mode == 1:
+        if not accessible(p):
+            return
+        fighters.append(make_person(p,god_team,next_unit_id,0))
+        fighters[-1].memory = "Summoned by the observer"
+        next_unit_id += 1
+    elif god_mode == 2:
+        if not accessible(p) or monster_at(p):
+            return
+        monsters.append({"p":p,"old":p,"hp":12,"kind":2,"cooldown":0})
+    elif god_mode == 3:
+        for f in fighters:
+            if (f.p-p).length_squared() <= 9 and int(f.team) == god_team:
+                f.hp = mini(12,int(f.hp)+4)
+                f.morale = 100
+                f.xp += 5
+    elif god_mode == 4:
+        for f in fighters:
+            if (f.p-p).length_squared() <= 9:
+                f.hp -= 5
+        for m in monsters:
+            if (m.p-p).length_squared() <= 9:
+                m.hp -= 8
+    elif god_mode == 5:
+        if occupied_tile(p) or monster_at(p):
+            return
+        terrain[p.y][p.x] = 1 if terrain[p.y][p.x] == 0 else 0
+    elif god_mode == 6:
+        calamity = 1
+        catastrophe_until = turn + 40
+    god_power -= cost
+    effect_marks.append({"p":p,"kind":god_mode,"until":turn+9})
+    events = ["","A hero arrives","A boss manifests","Divine blessing","Meteor strike","Terrain reshaped","Plague unleashed"][god_mode]
+    remember(events)
+    refresh()
+    queue_redraw()
+
+func occupied_tile(p: Vector2i) -> bool:
+    for f in fighters:
+        if f.hp > 0 and f.p == p:
+            return true
+    for b in settlements:
+        if b.p == p:
+            return true
+    return false
+
 func toggle_pause() -> void:
     speed = 0 if speed != 0 else 1
     pause_button.text = "Resume" if speed == 0 else "Pause"
@@ -576,7 +669,7 @@ func save_world() -> void:
     var nodes: Array = []
     for n in resource_nodes:
         nodes.append({"x":n.p.x,"y":n.p.y,"type":n.type,"amount":n.amount})
-    var data := {"seed":seed_value,"terrain":terrain,"fighters":actors,"bases":bases,"nodes":nodes,"turn":turn,"deaths":deaths,"next_id":next_unit_id,"stories":stories,"monsters":monsters.map(func(m): return {"x":m.p.x,"y":m.p.y,"hp":m.hp,"kind":m.kind}),"ruins":ruins.map(func(p): return [p.x,p.y]),"calamity":calamity,"catastrophe_until":catastrophe_until}
+    var data := {"seed":seed_value,"terrain":terrain,"fighters":actors,"bases":bases,"nodes":nodes,"turn":turn,"deaths":deaths,"next_id":next_unit_id,"stories":stories,"monsters":monsters.map(func(m): return {"x":m.p.x,"y":m.p.y,"hp":m.hp,"kind":m.kind}),"ruins":ruins.map(func(p): return [p.x,p.y]),"calamity":calamity,"catastrophe_until":catastrophe_until,"god_power":god_power}
     var file := FileAccess.open("user://world.json",FileAccess.WRITE)
     if file:
         file.store_string(JSON.stringify(data))
@@ -642,6 +735,8 @@ func load_world() -> void:
         ruins.append(Vector2i(int(rp[0]),int(rp[1])))
     calamity = int(data.get("calamity",0))
     catastrophe_until = int(data.get("catastrophe_until",0))
+    god_power = int(data.get("god_power",100))
+    effect_marks.clear()
     turn = int(data.turn)
     deaths = int(data.deaths)
     seed_value = int(data.seed)
@@ -669,6 +764,9 @@ func choose_unit(screen: Vector2) -> void:
     var pos := camera.get_screen_center_position() + (screen - get_viewport_rect().size / 2) / camera.zoom
     var cell := Vector2i(floori(pos.x / TILE),floori(pos.y / TILE))
     selected = -1
+    if god_mode != 0:
+        use_god_power(cell)
+        return
     for f in fighters:
         if f.p == cell:
             selected = f.id
