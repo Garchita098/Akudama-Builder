@@ -54,6 +54,12 @@ jobs:
           set -o pipefail
           godot --headless --path projects/dungeon_godot --editor --quit 2>&1 | tee godot-import.log
           if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" godot-import.log; then exit 1; fi
+      - name: Smoke test Godot game startup
+        shell: bash
+        run: |
+          godot --headless --path projects/dungeon_godot --quit-after 180 > godot-runtime.log 2>&1
+          cat godot-runtime.log
+          if grep -q "SCRIPT ERROR" godot-runtime.log; then exit 1; fi
       - name: Export playable Android APK
         shell: bash
         env:
