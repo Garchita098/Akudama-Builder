@@ -1,5 +1,6 @@
 extends Node2D
 const AtlasTiles = preload("res://art_tiles.gd")
+const SoldierSprites = preload("res://soldier_sprites.gd")
 # Living Dungeon: Godot foundation. Entire world renders procedurally.
 const GRID := Vector2i(96, 96)
 const TILE := 30.0
@@ -13,6 +14,7 @@ const EQUIPMENT := ["Rusty sword","Iron spear","Leather armor","Hunter bow","Ste
 var terrain: Array = []
 var biomes: Array = []
 var art_textures: Array[Texture2D] = []
+var faction_sprites: Array[Texture2D] = []
 var minimap: TextureRect
 var minimap_img: Image
 var minimap_tex: ImageTexture
@@ -52,6 +54,7 @@ var seed_value := 0
 
 func _ready() -> void:
     art_textures = AtlasTiles.build()
+    faction_sprites = SoldierSprites.build()
     camera = Camera2D.new()
     camera.position = Vector2(30,30) * TILE
     camera.zoom = Vector2(0.93, 0.93)
@@ -568,6 +571,9 @@ func refresh() -> void:
                 break
     queue_redraw()
 
+func draw_ellipse_shadow(center: Vector2) -> void:
+    draw_circle(center,11,Color(0,0,0,0.34))
+
 func _draw() -> void:
     var world_span: Vector2 = get_viewport_rect().size / camera.zoom
     var start_world: Vector2 = camera.get_screen_center_position() - world_span * 0.5
@@ -643,15 +649,11 @@ func _draw() -> void:
         var to: Vector2 = Vector2(f.p)
         var p: Vector2 = from.lerp(to,tween) * TILE + Vector2(4,3)
         var cloak: Color = FACTIONS[f.team]
-        draw_rect(Rect2(p + Vector2(3,19),Vector2(18,4)),Color("#070a10"))
-        draw_rect(Rect2(p + Vector2(5,7),Vector2(15,17)),cloak)
-        draw_rect(Rect2(p + Vector2(7,3),Vector2(12,8)),Color("#77889b"))
-        draw_rect(Rect2(p + Vector2(9,10),Vector2(7,5)),Color("#202a38"))
-        if str(f.profession) == "Mage" or str(f.profession) == "Necromancer":
-            draw_circle(p + Vector2(24,9),4,Color("#a875da"))
-        elif str(f.profession) == "Worker":
-            draw_rect(Rect2(p + Vector2(21,9),Vector2(4,11)),Color("#c79c56"))
-        draw_rect(Rect2(p + Vector2(22,8),Vector2(3,15)),Color("#bac6c5"))
+        draw_ellipse_shadow(p + Vector2(12,23))
+        if faction_sprites.size() == 3:
+            draw_texture_rect(faction_sprites[int(f.team)],Rect2(p - Vector2(3,9),Vector2(29,37)),false)
+        else:
+            draw_rect(Rect2(p + Vector2(5,7),Vector2(15,17)),cloak)
         if f.hp < 5:
             draw_rect(Rect2(p + Vector2(2,-4),Vector2(24,3)),Color("#632d35"))
             draw_rect(Rect2(p + Vector2(2,-4),Vector2(24.0 * f.hp / 5.0,3)),Color("#aee087"))
