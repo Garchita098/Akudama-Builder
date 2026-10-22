@@ -352,6 +352,21 @@ func update_magic() -> void:
                 mage.xp += 2
                 mage.memory = "Cast a hex on " + str(victim.name)
                 events = str(mage.name) + " casts a shadow hex!"
+    if turn % 35 == 0:
+        for necro in fighters:
+            if str(necro.profession) != "Necromancer" or int(necro.hp) <= 0:
+                continue
+            var spawn: Vector2i = necro.p + [Vector2i.UP,Vector2i.DOWN,Vector2i.LEFT,Vector2i.RIGHT][rng.randi_range(0,3)]
+            if accessible(spawn):
+                fighters.append(make_person(spawn,int(necro.team),next_unit_id,0))
+                fighters[-1].name = "Raised " + str(next_unit_id)
+                fighters[-1].profession = "Undead"
+                fighters[-1].trait = "Loyal"
+                fighters[-1].memory = "Raised by " + str(necro.name)
+                necro.memory = "Raised an undead servant"
+                necro.xp += 3
+                next_unit_id += 1
+                events = str(necro.name) + " raises an undead servant!"
     if turn % 90 == 0:
         calamity = rng.randi_range(1,3)
         catastrophe_until = turn + 22
@@ -372,7 +387,7 @@ func make_person(pos: Vector2i, team: int, uid: int, role: int) -> Dictionary:
         "goal":GOALS[rng.randi_range(0,GOALS.size()-1)],
         "xp":0,"level":1,"morale":rng.randi_range(50,90),
         "memory":"Born in " + TEAM_NAMES[team],"rival":"","friend":"",
-        "profession":"Worker" if role == 1 else ("Mage" if rng.randf() < 0.14 else PROFESSIONS[rng.randi_range(0,2)]),
+        "profession":"Worker" if role == 1 else (("Necromancer" if rng.randf() < 0.035 else "Mage") if rng.randf() < 0.16 else PROFESSIONS[rng.randi_range(0,2)]),
         "equipment":EQUIPMENT[rng.randi_range(0,EQUIPMENT.size()-1)],
         "relations":{}, "wanderlust":rng.randi_range(0,100)
     }
