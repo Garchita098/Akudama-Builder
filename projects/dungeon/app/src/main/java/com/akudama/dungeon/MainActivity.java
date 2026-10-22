@@ -58,7 +58,7 @@ public class MainActivity extends Activity {
         generate();updateUi();
         dungeon.postDelayed(new Runnable(){
             @Override public void run(){
-                if(!paused){step();updateUi();}
+                if(!paused && !getIntent().getBooleanExtra("ui_test",false)){step();updateUi();}
                 dungeon.postDelayed(this,450);
             }
         },450);
