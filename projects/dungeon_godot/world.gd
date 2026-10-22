@@ -7,6 +7,8 @@ const TEAM_NAMES := ["Azure", "Crimson", "Verdant"]
 const GIVEN_NAMES := ["Aldric","Veyra","Morwen","Kael","Eryn","Darian","Sable","Rhun","Nyx","Orin","Mara","Thorne"]
 const TRAITS := ["Brave","Cautious","Greedy","Loyal","Curious","Ruthless"]
 const GOALS := ["Protect","Explore","Gather","Glory"]
+const PROFESSIONS := ["Warrior","Scout","Guardian","Worker","Hunter"]
+const EQUIPMENT := ["Rusty sword","Iron spear","Leather armor","Hunter bow","Steel blade"]
 var terrain: Array = []
 var fighters: Array = []
 var settlements: Array = []
@@ -186,7 +188,11 @@ func simulate() -> void:
                 events = TEAM_NAMES[f.team] + " defeated " + TEAM_NAMES[enemy.team] + "."
         else:
             var move := Vector2i.ZERO
-            if nearest < 11:
+            if f.goal == "Survive" and int(f.morale) < 30 and nearest < 7:
+                move = Vector2i(1 if f.p.x > enemy.p.x else -1,0)
+                if not accessible(f.p + move):
+                    move = Vector2i(0,1 if f.p.y > enemy.p.y else -1)
+            elif nearest < 11:
                 var diff: Vector2i = enemy.p - f.p
                 if abs(diff.x) > abs(diff.y):
                     move.x = 1 if diff.x > 0 else -1
@@ -230,6 +236,20 @@ func simulate() -> void:
                 events = TEAM_NAMES[strongest] + " captured a fortress from " + TEAM_NAMES[previous] + "!"
         elif defenders > 0:
             base.hp = mini(35,int(base.hp)+1)
+    # Friends develop organically when living and working together.
+    if turn % 18 == 0:
+        for f in fighters:
+            for other in fighters:
+                if int(f.id) == int(other.id) or int(f.team) != int(other.team):
+                    continue
+                if (f.p - other.p).length_squared() <= 9:
+                    var relation_key: String = str(other.id)
+                    var score: int = int(f.relations.get(relation_key,0)) + 1
+                    f.relations[relation_key] = mini(score,100)
+                    if score == 4:
+                        f.friend = str(other.name)
+                        f.memory = "Befriended " + str(other.name)
+                    break
     for f in fighters:
         if int(f.xp) >= int(f.level) * 10:
             f.level += 1
@@ -258,7 +278,10 @@ func make_person(pos: Vector2i, team: int, uid: int, role: int) -> Dictionary:
         "name":first + " " + str(uid),"trait":TRAITS[rng.randi_range(0,TRAITS.size()-1)],
         "goal":GOALS[rng.randi_range(0,GOALS.size()-1)],
         "xp":0,"level":1,"morale":rng.randi_range(50,90),
-        "memory":"Born in " + TEAM_NAMES[team],"rival":"","friend":""
+        "memory":"Born in " + TEAM_NAMES[team],"rival":"","friend":"",
+        "profession":"Worker" if role == 1 else PROFESSIONS[rng.randi_range(0,2)],
+        "equipment":EQUIPMENT[rng.randi_range(0,EQUIPMENT.size()-1)],
+        "relations":{}, "wanderlust":rng.randi_range(0,100)
     }
     return person
 
@@ -357,7 +380,7 @@ func refresh() -> void:
     if selected >= 0:
         for f in fighters:
             if f.id == selected:
-                details.text = "%s L%d | %s | HP %d | %s | %s" % [f.name, f.level, f.trait, f.hp, f.goal, f.memory]
+                details.text = "%s L%d %s | HP %d | %s\n%s | %s" % [f.name, f.level, f.profession, f.hp, f.goal, f.trait, f.memory]
                 break
     queue_redraw()
 
@@ -426,7 +449,7 @@ func change_speed() -> void:
 func save_world() -> void:
     var actors: Array = []
     for f in fighters:
-        actors.append({"x":f.p.x,"y":f.p.y,"team":f.team,"hp":f.hp,"id":f.id,"kills":f.kills,"role":f.get("role",0),"name":f.name,"trait":f.trait,"goal":f.goal,"xp":f.xp,"level":f.level,"morale":f.morale,"memory":f.memory,"rival":f.rival,"friend":f.friend})
+        actors.append({"x":f.p.x,"y":f.p.y,"team":f.team,"hp":f.hp,"id":f.id,"kills":f.kills,"role":f.get("role",0),"name":f.name,"trait":f.trait,"goal":f.goal,"xp":f.xp,"level":f.level,"morale":f.morale,"memory":f.memory,"rival":f.rival,"friend":f.friend,"profession":f.profession,"equipment":f.equipment,"relations":f.relations,"wanderlust":f.wanderlust})
     var bases: Array = []
     for b in settlements:
         bases.append({"x":b.p.x,"y":b.p.y,"team":b.team,"wood":b.wood,"stone":b.stone,"food":b.food,"level":b.level,"hp":b.hp,"territory":b.territory})
@@ -473,6 +496,10 @@ func load_world() -> void:
         person.memory = str(f.get("memory",""))
         person.rival = str(f.get("rival",""))
         person.friend = str(f.get("friend",""))
+        person.profession = str(f.get("profession",person.profession))
+        person.equipment = str(f.get("equipment",person.equipment))
+        person.relations = f.get("relations",{})
+        person.wanderlust = int(f.get("wanderlust",0))
         fighters.append(person)
     settlements.clear()
     for b in data.get("bases",[]):
