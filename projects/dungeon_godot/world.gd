@@ -595,7 +595,7 @@ func cycle_god_team() -> void:
 func use_god_power(p: Vector2i) -> void:
     if p.x < 1 or p.y < 1 or p.x >= GRID.x-1 or p.y >= GRID.y-1:
         return
-    var cost := [0,12,20,8,15,5,25][god_mode]
+    var cost: int = [0,12,20,8,15,5,25][god_mode]
     if god_power < cost:
         events = "Not enough divine energy (" + str(cost) + ")"
         refresh()
