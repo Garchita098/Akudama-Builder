@@ -9,6 +9,13 @@ PACKAGE=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | sed -n "
 adb logcat -c
 adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 > test-results/launch.txt
 sleep 5
+# UIAutomator needs an idle window; dungeon repaints every 450ms.
+# Relaunch its Activity with simulation disabled for deterministic UI controls testing.
+if [ "$PACKAGE" = "com.akudama.dungeon" ]; then
+  adb shell am force-stop "$PACKAGE"
+  adb shell am start -n "$PACKAGE/.MainActivity" --ez ui_test true > test-results/test-mode-launch.txt
+  sleep 3
+fi
 adb shell pidof "$PACKAGE" > test-results/pid-before.txt || { echo "::error::App failed to stay running"; exit 1; }
 python3 .github/scripts/ui-scenarios.py
 adb shell pidof "$PACKAGE" > test-results/pid-after.txt || { echo "::error::App process exited"; exit 1; }
