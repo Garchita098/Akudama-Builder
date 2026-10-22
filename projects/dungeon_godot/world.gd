@@ -4,12 +4,16 @@ const GRID := Vector2i(45, 55)
 const TILE := 30.0
 const FACTIONS := [Color("#5bbdf1"), Color("#ed6969"), Color("#8fd878")]
 const TEAM_NAMES := ["Azure", "Crimson", "Verdant"]
+const GIVEN_NAMES := ["Aldric","Veyra","Morwen","Kael","Eryn","Darian","Sable","Rhun","Nyx","Orin","Mara","Thorne"]
+const TRAITS := ["Brave","Cautious","Greedy","Loyal","Curious","Ruthless"]
+const GOALS := ["Protect","Explore","Gather","Glory"]
 var terrain: Array = []
 var fighters: Array = []
 var settlements: Array = []
 var resource_nodes: Array = []
 var claims: Array = []
 var next_unit_id := 1000
+var stories: Array = []
 var turn := 0
 var deaths := 0
 var rng := RandomNumberGenerator.new()
@@ -45,7 +49,7 @@ func _ready() -> void:
     var headbox := VBoxContainer.new()
     header.add_child(headbox)
     var title := Label.new()
-    title.text = "LIVING DUNGEON  /  GODOT 0.5"
+    title.text = "LIVING DUNGEON  /  GODOT 0.6"
     title.add_theme_font_size_override("font_size", 24)
     title.add_theme_color_override("font_color", Color("#e2c49a"))
     headbox.add_child(title)
@@ -95,6 +99,7 @@ func generate() -> void:
     fighters.clear()
     terrain.clear()
     settlements.clear()
+    stories.clear()
     resource_nodes.clear()
     claims.clear()
     for y in range(GRID.y):
@@ -118,7 +123,7 @@ func generate() -> void:
         for attempt in range(300):
             var pos := Vector2i(rng.randi_range(1, GRID.x - 2), rng.randi_range(1, GRID.y - 2))
             if accessible(pos):
-                fighters.append({"p":pos, "old":pos, "team":i % 3, "hp":5, "id":i, "kills":0, "role": 1 if i % 4 == 0 else 0})
+                fighters.append(make_person(pos,i % 3,i,1 if i % 4 == 0 else 0))
                 break
     events = "Three factions enter the dungeon."
     selected = -1
@@ -167,9 +172,17 @@ func simulate() -> void:
             continue
         if nearest == 1:
             enemy.hp -= 1
+            f.xp += 1
+            enemy.morale = maxi(0,int(enemy.morale)-3)
             if enemy.hp <= 0:
                 deaths += 1
                 f.kills += 1
+                f.xp += 3
+                f.memory = "Defeated " + str(enemy.name)
+                f.rival = str(enemy.name)
+                f.morale = mini(100,int(f.morale)+5)
+                enemy.memory = "Fell to " + str(f.name)
+                remember(str(f.name) + " defeated " + str(enemy.name))
                 events = TEAM_NAMES[f.team] + " defeated " + TEAM_NAMES[enemy.team] + "."
         else:
             var move := Vector2i.ZERO
@@ -217,6 +230,15 @@ func simulate() -> void:
                 events = TEAM_NAMES[strongest] + " captured a fortress from " + TEAM_NAMES[previous] + "!"
         elif defenders > 0:
             base.hp = mini(35,int(base.hp)+1)
+    for f in fighters:
+        if int(f.xp) >= int(f.level) * 10:
+            f.level += 1
+            f.hp = mini(5 + int(f.level),int(f.hp)+1)
+            f.memory = "Reached level " + str(f.level)
+        if turn % 12 == 0:
+            f.morale = mini(100,int(f.morale)+1)
+        if turn % 20 == 0:
+            f.goal = choose_goal(f)
     if turn % 25 == 0 and fighters.size() < 120:
         for team in range(3):
             var parents := fighters.filter(func(f): return f.team == team)
@@ -225,9 +247,38 @@ func simulate() -> void:
             var parent: Dictionary = parents[rng.randi_range(0, parents.size() - 1)]
             var newpos: Vector2i = parent.p + Vector2i(rng.randi_range(-1,1), rng.randi_range(-1,1))
             if accessible(newpos):
-                fighters.append({"p":newpos, "old":newpos, "team":team, "hp":5, "id":next_unit_id, "kills":0, "role":0})
+                fighters.append(make_person(newpos,team,next_unit_id,0))
                 next_unit_id += 1
     refresh()
+
+func make_person(pos: Vector2i, team: int, uid: int, role: int) -> Dictionary:
+    var first: String = GIVEN_NAMES[rng.randi_range(0,GIVEN_NAMES.size()-1)]
+    var person: Dictionary = {
+        "p":pos,"old":pos,"team":team,"hp":5,"id":uid,"kills":0,"role":role,
+        "name":first + " " + str(uid),"trait":TRAITS[rng.randi_range(0,TRAITS.size()-1)],
+        "goal":GOALS[rng.randi_range(0,GOALS.size()-1)],
+        "xp":0,"level":1,"morale":rng.randi_range(50,90),
+        "memory":"Born in " + TEAM_NAMES[team],"rival":"","friend":""
+    }
+    return person
+
+func choose_goal(f: Dictionary) -> String:
+    if int(f.morale) < 30:
+        return "Survive"
+    if int(f.role) == 1:
+        return "Gather"
+    if int(f.kills) >= 2:
+        return "Glory"
+    if str(f.trait) == "Curious":
+        return "Explore"
+    if str(f.trait) == "Loyal":
+        return "Protect"
+    return GOALS[rng.randi_range(0,GOALS.size()-1)]
+
+func remember(line: String) -> void:
+    stories.push_back("T" + str(turn) + ": " + line)
+    if stories.size() > 80:
+        stories.pop_front()
 
 func worker_action(f: Dictionary) -> bool:
     var home: Dictionary = {}
@@ -289,7 +340,7 @@ func update_economy() -> void:
             var spawn: Vector2i = base.p + Vector2i(rng.randi_range(-3,3),rng.randi_range(-3,3))
             if accessible(spawn):
                 base.food -= 8
-                fighters.append({"p":spawn,"old":spawn,"team":team,"hp":5,"id":next_unit_id,"kills":0,"role":1 if population % 4 == 0 else 0})
+                fighters.append(make_person(spawn,team,next_unit_id,1 if population % 4 == 0 else 0))
                 next_unit_id += 1
 
 func refresh() -> void:
@@ -306,7 +357,7 @@ func refresh() -> void:
     if selected >= 0:
         for f in fighters:
             if f.id == selected:
-                details.text = "Unit #%d  |  HP %d  |  Kills %d  |  %s" % [f.id, f.hp, f.kills, TEAM_NAMES[f.team]]
+                details.text = "%s L%d | %s | HP %d | %s | %s" % [f.name, f.level, f.trait, f.hp, f.goal, f.memory]
                 break
     queue_redraw()
 
@@ -375,14 +426,14 @@ func change_speed() -> void:
 func save_world() -> void:
     var actors: Array = []
     for f in fighters:
-        actors.append({"x":f.p.x,"y":f.p.y,"team":f.team,"hp":f.hp,"id":f.id,"kills":f.kills,"role":f.get("role",0)})
+        actors.append({"x":f.p.x,"y":f.p.y,"team":f.team,"hp":f.hp,"id":f.id,"kills":f.kills,"role":f.get("role",0),"name":f.name,"trait":f.trait,"goal":f.goal,"xp":f.xp,"level":f.level,"morale":f.morale,"memory":f.memory,"rival":f.rival,"friend":f.friend})
     var bases: Array = []
     for b in settlements:
         bases.append({"x":b.p.x,"y":b.p.y,"team":b.team,"wood":b.wood,"stone":b.stone,"food":b.food,"level":b.level,"hp":b.hp,"territory":b.territory})
     var nodes: Array = []
     for n in resource_nodes:
         nodes.append({"x":n.p.x,"y":n.p.y,"type":n.type,"amount":n.amount})
-    var data := {"seed":seed_value,"terrain":terrain,"fighters":actors,"bases":bases,"nodes":nodes,"turn":turn,"deaths":deaths,"next_id":next_unit_id}
+    var data := {"seed":seed_value,"terrain":terrain,"fighters":actors,"bases":bases,"nodes":nodes,"turn":turn,"deaths":deaths,"next_id":next_unit_id,"stories":stories}
     var file := FileAccess.open("user://world.json",FileAccess.WRITE)
     if file:
         file.store_string(JSON.stringify(data))
@@ -410,7 +461,19 @@ func load_world() -> void:
     fighters.clear()
     for f in data.fighters:
         var pos := Vector2i(int(f.x),int(f.y))
-        fighters.append({"p":pos,"old":pos,"team":int(f.team),"hp":int(f.hp),"id":int(f.id),"kills":int(f.kills),"role":int(f.get("role",0))})
+        var person: Dictionary = make_person(pos,int(f.team),int(f.id),int(f.get("role",0)))
+        person.hp = int(f.hp)
+        person.kills = int(f.kills)
+        person.name = str(f.get("name",person.name))
+        person.trait = str(f.get("trait",person.trait))
+        person.goal = str(f.get("goal",person.goal))
+        person.xp = int(f.get("xp",0))
+        person.level = int(f.get("level",1))
+        person.morale = int(f.get("morale",70))
+        person.memory = str(f.get("memory",""))
+        person.rival = str(f.get("rival",""))
+        person.friend = str(f.get("friend",""))
+        fighters.append(person)
     settlements.clear()
     for b in data.get("bases",[]):
         settlements.append({"p":Vector2i(int(b.x),int(b.y)),"team":int(b.team),"wood":int(b.wood),"stone":int(b.stone),"food":int(b.food),"level":int(b.level),"hp":int(b.hp),"territory":int(b.territory)})
@@ -422,6 +485,7 @@ func load_world() -> void:
         generate()
         return
     next_unit_id = int(data.get("next_id",10000))
+    stories = data.get("stories",[])
     turn = int(data.turn)
     deaths = int(data.deaths)
     seed_value = int(data.seed)
