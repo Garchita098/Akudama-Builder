@@ -48,6 +48,10 @@ jobs:
           EOF
           echo "Detected Java: $JAVA_HOME_DETECTED"
           echo "Detected Android SDK: $SDK_DIR"
+      - name: Recover lossless PNG art assets
+        shell: bash
+        run: |
+          python3 projects/dungeon_godot/tools/build_assets.py
       - name: Import and validate project
         shell: bash
         run: |
