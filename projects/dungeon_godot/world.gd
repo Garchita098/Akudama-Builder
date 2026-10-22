@@ -1,6 +1,6 @@
 extends Node2D
 # Living Dungeon: Godot foundation. Entire world renders procedurally.
-const GRID := Vector2i(45, 55)
+const GRID := Vector2i(96, 96)
 const TILE := 30.0
 const FACTIONS := [Color("#5bbdf1"), Color("#ed6969"), Color("#8fd878")]
 const TEAM_NAMES := ["Azure", "Crimson", "Verdant"]
@@ -10,6 +10,7 @@ const GOALS := ["Protect","Explore","Gather","Glory"]
 const PROFESSIONS := ["Warrior","Scout","Guardian","Worker","Hunter"]
 const EQUIPMENT := ["Rusty sword","Iron spear","Leather armor","Hunter bow","Steel blade"]
 var terrain: Array = []
+var biomes: Array = []
 var fighters: Array = []
 var settlements: Array = []
 var resource_nodes: Array = []
@@ -45,7 +46,7 @@ var seed_value := 0
 
 func _ready() -> void:
     camera = Camera2D.new()
-    camera.position = Vector2(GRID.x, GRID.y) * TILE * 0.5
+    camera.position = Vector2(30,30) * TILE
     camera.zoom = Vector2(0.93, 0.93)
     camera.enabled = true
     add_child(camera)
@@ -62,7 +63,7 @@ func _ready() -> void:
     var headbox := VBoxContainer.new()
     header.add_child(headbox)
     var title := Label.new()
-    title.text = "LIVING DUNGEON  /  GODOT 0.8"
+    title.text = "LIVING DUNGEON  /  GODOT 1.0"
     title.add_theme_font_size_override("font_size", 24)
     title.add_theme_color_override("font_color", Color("#e2c49a"))
     headbox.add_child(title)
@@ -128,6 +129,7 @@ func generate() -> void:
     deaths = 0
     fighters.clear()
     terrain.clear()
+    biomes.clear()
     settlements.clear()
     stories.clear()
     monsters.clear()
@@ -140,27 +142,31 @@ func generate() -> void:
     claims.clear()
     for y in range(GRID.y):
         var row: Array = []
+        var biome_row: Array = []
         for x in range(GRID.x):
             var boundary: bool = x == 0 or y == 0 or x == GRID.x - 1 or y == GRID.y - 1
-            row.append(1 if boundary or rng.randf() < 0.13 else 0)
+            var zone: int = (int(x / 24) + 3 * int(y / 24) + int(x * y / 120)) % 4
+            biome_row.append(zone)
+            row.append(1 if boundary or rng.randf() < (0.08 if zone == 1 else 0.13) else 0)
         terrain.append(row)
-    var capitals := [Vector2i(7,8),Vector2i(37,9),Vector2i(22,45)]
+        biomes.append(biome_row)
+    var capitals := [Vector2i(15,15),Vector2i(80,16),Vector2i(49,79)]
     for team in range(3):
         var base: Vector2i = capitals[team]
         for yy in range(base.y - 3,base.y + 4):
             for xx in range(base.x - 3,base.x + 4):
                 terrain[yy][xx] = 0
         settlements.append({"p":base, "team":team, "wood":25, "stone":20, "food":30, "level":1, "hp":35, "territory":8})
-    for n in range(110):
+    for n in range(250):
         var p := Vector2i(rng.randi_range(2, GRID.x - 3),rng.randi_range(2,GRID.y - 3))
         if terrain[p.y][p.x] == 0:
             resource_nodes.append({"p":p, "type":rng.randi_range(0,2),"amount":rng.randi_range(6,18)})
-    for ruin_idx in range(7):
+    for ruin_idx in range(14):
         var rp := Vector2i(rng.randi_range(5,GRID.x - 6),rng.randi_range(5,GRID.y - 6))
         if terrain[rp.y][rp.x] == 0:
             ruins.append(rp)
             monsters.append({"p":rp,"old":rp,"hp":14 if ruin_idx == 0 else 5,"kind":2 if ruin_idx == 0 else ruin_idx % 2,"cooldown":0})
-    for i in range(55):
+    for i in range(95):
         for attempt in range(300):
             var pos := Vector2i(rng.randi_range(1, GRID.x - 2), rng.randi_range(1, GRID.y - 2))
             if accessible(pos):
@@ -522,9 +528,14 @@ func refresh() -> void:
     queue_redraw()
 
 func _draw() -> void:
-    var begin := Vector2.ZERO
-    for y in range(GRID.y):
-        for x in range(GRID.x):
+    var world_span: Vector2 = get_viewport_rect().size / camera.zoom
+    var start_world: Vector2 = camera.get_screen_center_position() - world_span * 0.5
+    var xmin: int = maxi(0,floori(start_world.x / TILE)-2)
+    var ymin: int = maxi(0,floori(start_world.y / TILE)-2)
+    var xmax: int = mini(GRID.x,ceili((start_world.x+world_span.x)/TILE)+3)
+    var ymax: int = mini(GRID.y,ceili((start_world.y+world_span.y)/TILE)+3)
+    for y in range(ymin,ymax):
+        for x in range(xmin,xmax):
             var p := Vector2(x, y) * TILE
             var variation: int = (x * 71 + y * 31 + x * y) % 7
             if terrain[y][x] == 1:
@@ -532,7 +543,10 @@ func _draw() -> void:
                 draw_rect(Rect2(p + Vector2(1,1), Vector2(TILE-2,9)), Color("#506075"))
                 draw_line(p + Vector2(3,18), p + Vector2(TILE-3,18), Color("#344254"), 2)
             else:
-                var floor_color := Color("#303543") if variation < 3 else Color("#272f3c")
+                var palette := [Color("#303543"),Color("#334235"),Color("#413340"),Color("#493c30")]
+                var floor_color: Color = palette[int(biomes[y][x])] if biomes.size() == GRID.y else Color("#303543")
+                if variation > 3:
+                    floor_color = floor_color.darkened(0.09)
                 draw_rect(Rect2(p, Vector2(TILE,TILE)), floor_color)
                 draw_line(p + Vector2(TILE/2,2),p + Vector2(TILE/2,13),Color("#1b2431"),1)
                 draw_line(p + Vector2(2,18),p + Vector2(16,18),Color("#1b2431"),1)
@@ -553,6 +567,8 @@ func _draw() -> void:
         var tint: Color = [Color("#94704e"),Color("#8b96a6"),Color("#899c56")][int(node.type)]
         draw_circle(p + Vector2(15,15),5.0,tint)
     for ruin in ruins:
+        if ruin.x < xmin or ruin.y < ymin or ruin.x > xmax or ruin.y > ymax:
+            continue
         var rp: Vector2 = Vector2(ruin)*TILE
         draw_rect(Rect2(rp + Vector2(2,2),Vector2(26,26)),Color("#5a345b"))
         draw_rect(Rect2(rp + Vector2(8,8),Vector2(14,14)),Color("#191126"))
@@ -576,12 +592,16 @@ func _draw() -> void:
     var tween: float = clamp(sim_accum / 0.55, 0.0, 1.0)
     tween = tween * tween * (3.0 - 2.0 * tween)
     for m in monsters:
+        if m.p.x < xmin or m.p.x > xmax or m.p.y < ymin or m.p.y > ymax:
+            continue
         var mp: Vector2 = Vector2(m.old).lerp(Vector2(m.p),tween)*TILE
         var mc: Color = Color("#cb4a39") if int(m.kind) == 2 else Color("#9054a7")
         draw_circle(mp + Vector2(15,15),13 if int(m.kind) == 2 else 9,mc)
         draw_circle(mp + Vector2(11,12),2,Color("#f6d3a7"))
         draw_circle(mp + Vector2(19,12),2,Color("#f6d3a7"))
     for f in fighters:
+        if f.p.x < xmin or f.p.x > xmax or f.p.y < ymin or f.p.y > ymax:
+            continue
         var from: Vector2 = Vector2(f.old)
         var to: Vector2 = Vector2(f.p)
         var p: Vector2 = from.lerp(to,tween) * TILE + Vector2(4,3)
@@ -690,7 +710,7 @@ func save_world() -> void:
     var nodes: Array = []
     for n in resource_nodes:
         nodes.append({"x":n.p.x,"y":n.p.y,"type":n.type,"amount":n.amount})
-    var data := {"seed":seed_value,"terrain":terrain,"fighters":actors,"bases":bases,"nodes":nodes,"turn":turn,"deaths":deaths,"next_id":next_unit_id,"stories":stories,"monsters":monsters.map(func(m): return {"x":m.p.x,"y":m.p.y,"hp":m.hp,"kind":m.kind}),"ruins":ruins.map(func(p): return [p.x,p.y]),"calamity":calamity,"catastrophe_until":catastrophe_until,"god_power":god_power}
+    var data := {"seed":seed_value,"terrain":terrain,"fighters":actors,"bases":bases,"nodes":nodes,"turn":turn,"deaths":deaths,"next_id":next_unit_id,"stories":stories,"monsters":monsters.map(func(m): return {"x":m.p.x,"y":m.p.y,"hp":m.hp,"kind":m.kind}),"ruins":ruins.map(func(p): return [p.x,p.y]),"calamity":calamity,"catastrophe_until":catastrophe_until,"god_power":god_power,"biomes":biomes}
     var file := FileAccess.open("user://world.json",FileAccess.WRITE)
     if file:
         file.store_string(JSON.stringify(data))
@@ -715,6 +735,14 @@ func load_world() -> void:
         refresh()
         return
     terrain = data.terrain
+    biomes = data.get("biomes",[])
+    if biomes.size() != GRID.y:
+        biomes.clear()
+        for y in range(GRID.y):
+            var row: Array = []
+            for x in range(GRID.x):
+                row.append((int(x / 24) + 3 * int(y / 24)) % 4)
+            biomes.append(row)
     fighters.clear()
     for f in data.fighters:
         var pos := Vector2i(int(f.x),int(f.y))
