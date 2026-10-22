@@ -15,6 +15,8 @@ var terrain: Array = []
 var biomes: Array = []
 var art_textures: Array[Texture2D] = []
 var faction_sprites: Array[Texture2D] = []
+var creature_sprites: Array[Texture2D] = []
+var animated_glow := 0.0
 var minimap: TextureRect
 var minimap_img: Image
 var minimap_tex: ImageTexture
@@ -55,6 +57,7 @@ var seed_value := 0
 func _ready() -> void:
     art_textures = AtlasTiles.build()
     faction_sprites = SoldierSprites.build()
+    creature_sprites = make_creature_sprites()
     camera = Camera2D.new()
     camera.position = Vector2(30,30) * TILE
     camera.zoom = Vector2(0.93, 0.93)
@@ -70,6 +73,7 @@ func _ready() -> void:
     header.position = Vector2(10, 42)
     header.size = Vector2(700, 108)
     overlay.add_child(header)
+    stylize_panel(header,Color("#131b28"))
     var headbox := VBoxContainer.new()
     header.add_child(headbox)
     var title := Label.new()
@@ -84,6 +88,7 @@ func _ready() -> void:
     map_border.position = Vector2(530,165)
     map_border.size = Vector2(174,174)
     overlay.add_child(map_border)
+    stylize_panel(map_border,Color("#171c2b"))
     minimap = TextureRect.new()
     minimap.custom_minimum_size = Vector2(166,166)
     minimap.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -97,6 +102,7 @@ func _ready() -> void:
     bottom.position = Vector2(8, 930)
     bottom.size = Vector2(704, 335)
     overlay.add_child(bottom)
+    stylize_panel(bottom,Color("#121823"))
     var stack := VBoxContainer.new()
     bottom.add_child(stack)
     details = Label.new()
@@ -109,25 +115,30 @@ func _ready() -> void:
     pause_button.text = "Pause"
     pause_button.pressed.connect(toggle_pause)
     buttons.add_child(pause_button)
+    stylize_button(pause_button)
     var step_button := Button.new()
     step_button.text = "Speed x1"
     step_button.pressed.connect(change_speed)
     buttons.add_child(step_button)
+    stylize_button(step_button)
     step_button.set_meta("speed_button", true)
     var new_button := Button.new()
     new_button.text = "New World"
     new_button.pressed.connect(generate)
     buttons.add_child(new_button)
+    stylize_button(new_button)
     var powers := HBoxContainer.new()
     stack.add_child(powers)
     god_button = Button.new()
     god_button.text = "Select"
     god_button.pressed.connect(cycle_god_mode)
     powers.add_child(god_button)
+    stylize_button(god_button)
     god_team_button = Button.new()
     god_team_button.text = "Blue"
     god_team_button.pressed.connect(cycle_god_team)
     powers.add_child(god_team_button)
+    stylize_button(god_team_button)
     var action_hint := Label.new()
     action_hint.text = "Choose a power, then tap a tile on the map"
     action_hint.add_theme_font_size_override("font_size",21)
@@ -138,12 +149,69 @@ func _ready() -> void:
     save_button.text = "Save"
     save_button.pressed.connect(save_world)
     buttons.add_child(save_button)
+    stylize_button(save_button)
     var load_button := Button.new()
     load_button.text = "Load"
     load_button.pressed.connect(load_world)
     buttons.add_child(load_button)
+    stylize_button(load_button)
     rng.randomize()
     generate()
+
+func stylize_panel(panel: PanelContainer, fill: Color) -> void:
+    var style := StyleBoxFlat.new()
+    style.bg_color = Color(fill.r,fill.g,fill.b,0.92)
+    style.border_color = Color("#b78b54")
+    style.set_border_width_all(2)
+    style.corner_radius_top_left = 5
+    style.corner_radius_top_right = 5
+    style.corner_radius_bottom_left = 5
+    style.corner_radius_bottom_right = 5
+    style.set_content_margin_all(7)
+    panel.add_theme_stylebox_override("panel",style)
+
+func stylize_button(btn: Button) -> void:
+    btn.add_theme_font_size_override("font_size",19)
+    btn.add_theme_color_override("font_color",Color("#f4e2c7"))
+    var style := StyleBoxFlat.new()
+    style.bg_color = Color("#273044")
+    style.border_color = Color("#916f4c")
+    style.set_border_width_all(1)
+    style.set_content_margin_all(7)
+    btn.add_theme_stylebox_override("normal",style)
+    var hover := style.duplicate()
+    hover.bg_color = Color("#4a3440")
+    btn.add_theme_stylebox_override("hover",hover)
+    btn.add_theme_stylebox_override("pressed",hover)
+
+func make_creature_sprites() -> Array[Texture2D]:
+    var result: Array[Texture2D] = []
+    for monster_kind in range(2):
+        var img := Image.create(28,32,false,Image.FORMAT_RGBA8)
+        img.fill(Color.TRANSPARENT)
+        var body: Color = Color("#865cba") if monster_kind == 0 else Color("#9d3935")
+        var dark: Color = body.darkened(0.55)
+        for yy in range(8,27):
+            for xx in range(4,24):
+                var cx: float = float(xx-14)/11.0
+                var cy: float = float(yy-18)/13.0
+                if cx*cx+cy*cy < 0.9:
+                    img.set_pixel(xx,yy,dark if (xx+yy)%5==0 else body)
+        for xx in range(7,21):
+            for yy in range(7,15):
+                if abs(xx-14)+abs(yy-11) < 9:
+                    img.set_pixel(xx,yy,Color("#d8c5af"))
+        for xx in [10,18]:
+            img.set_pixel(xx,11,Color("#ff4a60") if monster_kind == 1 else Color("#abf7e9"))
+            img.set_pixel(xx,12,Color("#2e1018"))
+        for yy in range(2,11):
+            img.set_pixel(5+int(yy/3),yy,Color("#e9d2c1"))
+            img.set_pixel(22-int(yy/3),yy,Color("#e9d2c1"))
+        for yy in range(25,30):
+            for xx in [8,9,18,19]:
+                img.set_pixel(xx,yy,dark)
+        result.append(ImageTexture.create_from_image(img))
+    return result
 
 func generate() -> void:
     seed_value = rng.randi()
@@ -587,14 +655,26 @@ func _draw() -> void:
             var variation: int = (x * 71 + y * 31 + x * y) % 7
             var tile_index: int = 4 if terrain[y][x] == 1 else int(biomes[y][x])
             if art_textures.size() == 5:
-                draw_texture_rect(art_textures[tile_index],Rect2(p,Vector2(TILE,TILE)),false)
+                var sprite_index: int = tile_index
+                if tile_index == 2 and variation % 4 != 0:
+                    sprite_index = 0
+                draw_texture_rect(art_textures[sprite_index],Rect2(p,Vector2(TILE,TILE)),false)
+                if terrain[y][x] == 0 and variation % 5 == 0:
+                    draw_rect(Rect2(p+Vector2(4,25),Vector2(7,2)),Color(0.1,0.1,0.1,0.26))
+                if terrain[y][x] == 1:
+                    draw_line(p+Vector2(2,2),p+Vector2(28,2),Color("#b5b4a4"),2)
+                elif variation % 7 == 3 and biomes[y][x] == 1:
+                    draw_line(p+Vector2(12,24),p+Vector2(15,17),Color("#acc375"),2)
             else:
                 draw_rect(Rect2(p,Vector2(TILE,TILE)),Color("#313744"))
     for base in settlements:
         var origin: Vector2 = Vector2(base.p) * TILE
         var color: Color = FACTIONS[int(base.team)]
         draw_arc(origin + Vector2(TILE/2,TILE/2),float(base.territory)*TILE,0,TAU,84,Color(color.r,color.g,color.b,0.16),3)
-        draw_rect(Rect2(origin - Vector2(9,12),Vector2(48,45)),Color("#141720"))
+        draw_rect(Rect2(origin - Vector2(13,17),Vector2(55,54)),Color("#10131a"))
+        for wall_x in [-12,30]:
+            draw_rect(Rect2(origin+Vector2(wall_x,-21),Vector2(12,47)),Color("#526071"))
+            draw_rect(Rect2(origin+Vector2(wall_x-3,-25),Vector2(18,7)),Color("#8d9ba5"))
         draw_rect(Rect2(origin - Vector2(5,1),Vector2(40,29)),Color("#667281"))
         draw_rect(Rect2(origin + Vector2(5,-16),Vector2(20,27)),color)
         draw_rect(Rect2(origin + Vector2(11,13),Vector2(10,20)),Color("#10131a"))
@@ -610,8 +690,11 @@ func _draw() -> void:
         if ruin.x < xmin or ruin.y < ymin or ruin.x > xmax or ruin.y > ymax:
             continue
         var rp: Vector2 = Vector2(ruin)*TILE
-        draw_rect(Rect2(rp + Vector2(2,2),Vector2(26,26)),Color("#5a345b"))
-        draw_rect(Rect2(rp + Vector2(8,8),Vector2(14,14)),Color("#191126"))
+        draw_rect(Rect2(rp-Vector2(5,7),Vector2(41,42)),Color("#191522"))
+        draw_rect(Rect2(rp+Vector2(0,-9),Vector2(32,8)),Color("#716071"))
+        draw_rect(Rect2(rp+Vector2(4,5),Vector2(24,28)),Color("#433049"))
+        draw_circle(rp+Vector2(16,18),8,Color("#9d53b2"))
+        draw_circle(rp+Vector2(16,18),4,Color("#24122e"))
     if calamity != 0:
         draw_rect(Rect2(Vector2.ZERO,Vector2(GRID)*TILE),Color(0.22,0.02,0.12,0.10 if calamity == 2 else 0.05))
     for mark in effect_marks:
@@ -635,13 +718,13 @@ func _draw() -> void:
         if m.p.x < xmin or m.p.x > xmax or m.p.y < ymin or m.p.y > ymax:
             continue
         var mp: Vector2 = Vector2(m.old).lerp(Vector2(m.p),tween)*TILE
-        var mc: Color = Color("#cb4a39") if int(m.kind) == 2 else Color("#9054a7")
-        draw_circle(mp + Vector2(15,15),13 if int(m.kind) == 2 else 9,mc)
-        draw_circle(mp + Vector2(11,12),2,Color("#f6d3a7"))
-        draw_circle(mp + Vector2(19,12),2,Color("#f6d3a7"))
-        if int(m.kind) == 2:
-            draw_line(mp+Vector2(7,3),mp+Vector2(3,-8),Color("#e3594c"),4)
-            draw_line(mp+Vector2(23,3),mp+Vector2(27,-8),Color("#e3594c"),4)
+        var creature_kind: int = 1 if int(m.kind) == 2 else 0
+        draw_circle(mp+Vector2(15,26),12,Color(0,0,0,0.36))
+        if creature_sprites.size() == 2:
+            var bob: float = sin(float(Time.get_ticks_msec()) / 250.0 + float(m.p.x))*1.7
+            draw_texture_rect(creature_sprites[creature_kind],Rect2(mp-Vector2(2,13+bob),Vector2(34,43)),false)
+        else:
+            draw_circle(mp+Vector2(15,15),12,Color("#8a3e6e"))
     for f in fighters:
         if f.p.x < xmin or f.p.x > xmax or f.p.y < ymin or f.p.y > ymax:
             continue
@@ -651,7 +734,11 @@ func _draw() -> void:
         var cloak: Color = FACTIONS[f.team]
         draw_ellipse_shadow(p + Vector2(12,23))
         if faction_sprites.size() == 3:
-            draw_texture_rect(faction_sprites[int(f.team)],Rect2(p - Vector2(3,9),Vector2(29,37)),false)
+            draw_texture_rect(faction_sprites[int(f.team)],Rect2(p - Vector2(9,15),Vector2(41,51)),false)
+            if str(f.profession).to_lower().contains("mage") or str(f.profession).to_lower().contains("necro"):
+                draw_circle(p + Vector2(27,2),5,Color("#aa67e9"))
+            elif str(f.profession).to_lower().contains("worker"):
+                draw_rect(Rect2(p+Vector2(24,12),Vector2(5,10)),Color("#d2a15a"))
         else:
             draw_rect(Rect2(p + Vector2(5,7),Vector2(15,17)),cloak)
         if f.hp < 5:
