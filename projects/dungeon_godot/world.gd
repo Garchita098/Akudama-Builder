@@ -1,4 +1,5 @@
 extends Node2D
+const AtlasTiles = preload("res://art_tiles.gd")
 # Living Dungeon: Godot foundation. Entire world renders procedurally.
 const GRID := Vector2i(96, 96)
 const TILE := 30.0
@@ -11,6 +12,7 @@ const PROFESSIONS := ["Warrior","Scout","Guardian","Worker","Hunter"]
 const EQUIPMENT := ["Rusty sword","Iron spear","Leather armor","Hunter bow","Steel blade"]
 var terrain: Array = []
 var biomes: Array = []
+var art_textures: Array[Texture2D] = []
 var minimap: TextureRect
 var minimap_img: Image
 var minimap_tex: ImageTexture
@@ -49,6 +51,7 @@ var dragging := false
 var seed_value := 0
 
 func _ready() -> void:
+    art_textures = AtlasTiles.build()
     camera = Camera2D.new()
     camera.position = Vector2(30,30) * TILE
     camera.zoom = Vector2(0.93, 0.93)
@@ -576,30 +579,11 @@ func _draw() -> void:
         for x in range(xmin,xmax):
             var p := Vector2(x, y) * TILE
             var variation: int = (x * 71 + y * 31 + x * y) % 7
-            if terrain[y][x] == 1:
-                draw_rect(Rect2(p, Vector2(TILE,TILE)), Color("#161f2c"))
-                draw_rect(Rect2(p + Vector2(1,1), Vector2(TILE-2,9)), Color("#506075"))
-                draw_line(p + Vector2(3,18), p + Vector2(TILE-3,18), Color("#344254"), 2)
+            var tile_index: int = 4 if terrain[y][x] == 1 else int(biomes[y][x])
+            if art_textures.size() == 5:
+                draw_texture_rect(art_textures[tile_index],Rect2(p,Vector2(TILE,TILE)),false)
             else:
-                var palette := [Color("#303543"),Color("#334235"),Color("#413340"),Color("#493c30")]
-                var floor_color: Color = palette[int(biomes[y][x])] if biomes.size() == GRID.y else Color("#303543")
-                if variation > 3:
-                    floor_color = floor_color.darkened(0.09)
-                draw_rect(Rect2(p, Vector2(TILE,TILE)), floor_color)
-                draw_line(p + Vector2(TILE/2,2),p + Vector2(TILE/2,13),Color("#1b2431"),1)
-                draw_line(p + Vector2(2,18),p + Vector2(16,18),Color("#1b2431"),1)
-                if variation == 6:
-                    draw_rect(Rect2(p + Vector2(7,23), Vector2(9,2)), Color("#596266"))
-                var biome: int = int(biomes[y][x])
-                if biome == 1 and variation % 3 == 0:
-                    draw_line(p + Vector2(6,26),p + Vector2(9,16),Color("#659b61"),2)
-                    draw_line(p + Vector2(15,25),p + Vector2(18,13),Color("#4a8659"),2)
-                elif biome == 2 and variation % 4 == 0:
-                    draw_circle(p + Vector2(12,16),4,Color("#724d82"))
-                    draw_circle(p + Vector2(16,11),2,Color("#a074ae"))
-                elif biome == 3 and variation % 3 == 0:
-                    draw_line(p + Vector2(4,22),p + Vector2(24,20),Color("#88654a"),2)
-                    draw_rect(Rect2(p + Vector2(20,8),Vector2(5,7)),Color("#75543b"))
+                draw_rect(Rect2(p,Vector2(TILE,TILE)),Color("#313744"))
     for base in settlements:
         var origin: Vector2 = Vector2(base.p) * TILE
         var color: Color = FACTIONS[int(base.team)]
