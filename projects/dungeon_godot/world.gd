@@ -772,6 +772,10 @@ func load_world() -> void:
         events = "Invalid save."
         refresh()
         return
+    if data.terrain.size() != GRID.y:
+        events = "Old world size differs. Starting a new world."
+        generate()
+        return
     terrain = data.terrain
     biomes = data.get("biomes",[])
     if biomes.size() != GRID.y:
