@@ -16,6 +16,10 @@ var resource_nodes: Array = []
 var claims: Array = []
 var next_unit_id := 1000
 var stories: Array = []
+var monsters: Array = []
+var ruins: Array = []
+var calamity := 0
+var catastrophe_until := 0
 var turn := 0
 var deaths := 0
 var rng := RandomNumberGenerator.new()
@@ -51,7 +55,7 @@ func _ready() -> void:
     var headbox := VBoxContainer.new()
     header.add_child(headbox)
     var title := Label.new()
-    title.text = "LIVING DUNGEON  /  GODOT 0.6"
+    title.text = "LIVING DUNGEON  /  GODOT 0.7"
     title.add_theme_font_size_override("font_size", 24)
     title.add_theme_color_override("font_color", Color("#e2c49a"))
     headbox.add_child(title)
@@ -102,6 +106,10 @@ func generate() -> void:
     terrain.clear()
     settlements.clear()
     stories.clear()
+    monsters.clear()
+    ruins.clear()
+    calamity = 0
+    catastrophe_until = 0
     resource_nodes.clear()
     claims.clear()
     for y in range(GRID.y):
@@ -121,6 +129,11 @@ func generate() -> void:
         var p := Vector2i(rng.randi_range(2, GRID.x - 3),rng.randi_range(2,GRID.y - 3))
         if terrain[p.y][p.x] == 0:
             resource_nodes.append({"p":p, "type":rng.randi_range(0,2),"amount":rng.randi_range(6,18)})
+    for ruin_idx in range(7):
+        var rp := Vector2i(rng.randi_range(5,GRID.x - 6),rng.randi_range(5,GRID.y - 6))
+        if terrain[rp.y][rp.x] == 0:
+            ruins.append(rp)
+            monsters.append({"p":rp,"old":rp,"hp":14 if ruin_idx == 0 else 5,"kind":2 if ruin_idx == 0 else ruin_idx % 2,"cooldown":0})
     for i in range(55):
         for attempt in range(300):
             var pos := Vector2i(rng.randi_range(1, GRID.x - 2), rng.randi_range(1, GRID.y - 2))
@@ -154,6 +167,8 @@ func _process(delta: float) -> void:
 func simulate() -> void:
     turn += 1
     update_economy()
+    update_monsters()
+    update_magic()
     fighters.shuffle()
     for f in fighters:
         f.old = f.p
@@ -271,6 +286,84 @@ func simulate() -> void:
                 next_unit_id += 1
     refresh()
 
+func update_monsters() -> void:
+    for monster in monsters:
+        if int(monster.hp) <= 0:
+            continue
+        monster.old = monster.p
+        var target: Dictionary = {}
+        var best := 9999
+        for f in fighters:
+            if int(f.hp) <= 0:
+                continue
+            var d: int = abs(f.p.x - monster.p.x) + abs(f.p.y - monster.p.y)
+            if d < best:
+                best = d
+                target = f
+        if target.is_empty():
+            continue
+        if best <= 1:
+            target.hp -= 2 if int(monster.kind) == 2 else 1
+            if int(target.hp) <= 0:
+                deaths += 1
+                remember(str(target.name) + " was slain by a dungeon beast")
+                events = "A monster killed " + str(target.name)
+        elif best < 9:
+            var diff: Vector2i = target.p - monster.p
+            var step := Vector2i.ZERO
+            if abs(diff.x) >= abs(diff.y):
+                step.x = 1 if diff.x > 0 else -1
+            else:
+                step.y = 1 if diff.y > 0 else -1
+            if accessible(monster.p + step) and not monster_at(monster.p + step):
+                monster.p += step
+    if turn % 24 == 0:
+        for monster in monsters:
+            if int(monster.hp) <= 0:
+                continue
+            for f in fighters:
+                if int(f.hp) > 0 and (f.p - monster.p).length_squared() <= 2:
+                    monster.hp -= 1
+                    if int(monster.hp) <= 0:
+                        f.xp += 8
+                        f.memory = "Slayed a dungeon beast"
+                        remember(str(f.name) + " vanquished a beast")
+                    break
+    monsters = monsters.filter(func(m): return int(m.hp) > 0)
+    if turn % 55 == 0 and monsters.size() < 18 and not ruins.is_empty():
+        var spawn: Vector2i = ruins[rng.randi_range(0,ruins.size()-1)]
+        if accessible(spawn) and not monster_at(spawn):
+            monsters.append({"p":spawn,"old":spawn,"hp":6,"kind":rng.randi_range(0,1),"cooldown":0})
+
+func monster_at(pos: Vector2i) -> bool:
+    for m in monsters:
+        if int(m.hp) > 0 and m.p == pos:
+            return true
+    return false
+
+func update_magic() -> void:
+    if turn % 14 == 0:
+        var candidates: Array = fighters.filter(func(f): return int(f.hp) > 0 and str(f.profession) == "Mage")
+        for mage in candidates:
+            var nearby: Array = fighters.filter(func(f): return int(f.hp) > 0 and int(f.team) != int(mage.team) and (f.p - mage.p).length_squared() <= 25)
+            if not nearby.is_empty():
+                var victim: Dictionary = nearby[rng.randi_range(0,nearby.size()-1)]
+                victim.hp -= 2
+                mage.xp += 2
+                mage.memory = "Cast a hex on " + str(victim.name)
+                events = str(mage.name) + " casts a shadow hex!"
+    if turn % 90 == 0:
+        calamity = rng.randi_range(1,3)
+        catastrophe_until = turn + 22
+        events = ["", "PLAGUE spreads", "BLOOD MOON rises", "ARCANE STORM erupts"][calamity]
+        remember(events)
+    if calamity != 0 and turn <= catastrophe_until and turn % 5 == 0:
+        for f in fighters:
+            if rng.randf() < 0.04:
+                f.hp -= 1
+    if turn > catastrophe_until:
+        calamity = 0
+
 func make_person(pos: Vector2i, team: int, uid: int, role: int) -> Dictionary:
     var first: String = GIVEN_NAMES[rng.randi_range(0,GIVEN_NAMES.size()-1)]
     var person: Dictionary = {
@@ -279,7 +372,7 @@ func make_person(pos: Vector2i, team: int, uid: int, role: int) -> Dictionary:
         "goal":GOALS[rng.randi_range(0,GOALS.size()-1)],
         "xp":0,"level":1,"morale":rng.randi_range(50,90),
         "memory":"Born in " + TEAM_NAMES[team],"rival":"","friend":"",
-        "profession":"Worker" if role == 1 else PROFESSIONS[rng.randi_range(0,2)],
+        "profession":"Worker" if role == 1 else ("Mage" if rng.randf() < 0.14 else PROFESSIONS[rng.randi_range(0,2)]),
         "equipment":EQUIPMENT[rng.randi_range(0,EQUIPMENT.size()-1)],
         "relations":{}, "wanderlust":rng.randi_range(0,100)
     }
@@ -415,8 +508,20 @@ func _draw() -> void:
         var p: Vector2 = Vector2(node.p)*TILE
         var tint: Color = [Color("#94704e"),Color("#8b96a6"),Color("#899c56")][int(node.type)]
         draw_circle(p + Vector2(15,15),5.0,tint)
+    for ruin in ruins:
+        var rp: Vector2 = Vector2(ruin)*TILE
+        draw_rect(Rect2(rp + Vector2(2,2),Vector2(26,26)),Color("#5a345b"))
+        draw_rect(Rect2(rp + Vector2(8,8),Vector2(14,14)),Color("#191126"))
+    if calamity != 0:
+        draw_rect(Rect2(Vector2.ZERO,Vector2(GRID)*TILE),Color(0.22,0.02,0.12,0.10 if calamity == 2 else 0.05))
     var tween: float = clamp(sim_accum / 0.55, 0.0, 1.0)
     tween = tween * tween * (3.0 - 2.0 * tween)
+    for m in monsters:
+        var mp: Vector2 = Vector2(m.old).lerp(Vector2(m.p),tween)*TILE
+        var mc: Color = Color("#cb4a39") if int(m.kind) == 2 else Color("#9054a7")
+        draw_circle(mp + Vector2(15,15),13 if int(m.kind) == 2 else 9,mc)
+        draw_circle(mp + Vector2(11,12),2,Color("#f6d3a7"))
+        draw_circle(mp + Vector2(19,12),2,Color("#f6d3a7"))
     for f in fighters:
         var from: Vector2 = Vector2(f.old)
         var to: Vector2 = Vector2(f.p)
@@ -456,7 +561,7 @@ func save_world() -> void:
     var nodes: Array = []
     for n in resource_nodes:
         nodes.append({"x":n.p.x,"y":n.p.y,"type":n.type,"amount":n.amount})
-    var data := {"seed":seed_value,"terrain":terrain,"fighters":actors,"bases":bases,"nodes":nodes,"turn":turn,"deaths":deaths,"next_id":next_unit_id,"stories":stories}
+    var data := {"seed":seed_value,"terrain":terrain,"fighters":actors,"bases":bases,"nodes":nodes,"turn":turn,"deaths":deaths,"next_id":next_unit_id,"stories":stories,"monsters":monsters.map(func(m): return {"x":m.p.x,"y":m.p.y,"hp":m.hp,"kind":m.kind}),"ruins":ruins.map(func(p): return [p.x,p.y]),"calamity":calamity,"catastrophe_until":catastrophe_until}
     var file := FileAccess.open("user://world.json",FileAccess.WRITE)
     if file:
         file.store_string(JSON.stringify(data))
@@ -513,6 +618,15 @@ func load_world() -> void:
         return
     next_unit_id = int(data.get("next_id",10000))
     stories = data.get("stories",[])
+    monsters.clear()
+    for m in data.get("monsters",[]):
+        var mp := Vector2i(int(m.x),int(m.y))
+        monsters.append({"p":mp,"old":mp,"hp":int(m.hp),"kind":int(m.kind),"cooldown":0})
+    ruins.clear()
+    for rp in data.get("ruins",[]):
+        ruins.append(Vector2i(int(rp[0]),int(rp[1])))
+    calamity = int(data.get("calamity",0))
+    catastrophe_until = int(data.get("catastrophe_until",0))
     turn = int(data.turn)
     deaths = int(data.deaths)
     seed_value = int(data.seed)
