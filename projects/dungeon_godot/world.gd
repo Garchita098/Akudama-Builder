@@ -706,9 +706,23 @@ func _draw() -> void:
         draw_circle(center,14.0 + 30.0*time_left,Color(power_color.r,power_color.g,power_color.b,0.20*time_left))
         draw_arc(center,radius,0,TAU,40,Color(power_color.r,power_color.g,power_color.b,time_left),5)
         if kind == 4:
+            for spark in range(14):
+                var angle: float = float(spark) * TAU / 14.0
+                var travel: float = (1.0-time_left)*115.0
+                var outward: Vector2 = Vector2(cos(angle),sin(angle))
+                draw_circle(center + outward*travel,float(2+spark%3)*time_left+1,Color("#ffc25b"))
             draw_line(center-Vector2(56,180)*time_left,center,Color("#ffb23a"),maxf(3.0,14.0*time_left))
             draw_circle(center,9.0+28.0*time_left,Color("#ff7b2e"))
             draw_arc(center,radius*0.75,0,TAU,32,Color("#ffe89b"),3)
+        elif kind == 6:
+            for cloud_idx in range(8):
+                var phi: float = float(cloud_idx)*TAU/8.0
+                var cloud_pos: Vector2 = center + Vector2(cos(phi),sin(phi))*(24.0+40.0*(1.0-time_left))
+                draw_circle(cloud_pos,10.0*time_left+4.0,Color(0.40,0.94,0.18,0.47*time_left))
+        elif kind == 3:
+            for ray in range(10):
+                var ray_pos: Vector2 = center+Vector2(cos(float(ray)*TAU/10.0),sin(float(ray)*TAU/10.0))*40.0
+                draw_line(ray_pos,ray_pos-Vector2(0,55.0*time_left),Color(1.0,0.86,0.39,time_left),2)
         elif kind == 5:
             draw_rect(Rect2(Vector2(mark.p)*TILE,Vector2(TILE,TILE)),Color("#9ee8ff"))
             draw_arc(center,24,0,TAU,20,Color("#ffffff"),3)
