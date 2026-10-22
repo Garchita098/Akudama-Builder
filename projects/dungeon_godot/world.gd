@@ -590,6 +590,16 @@ func _draw() -> void:
                 draw_line(p + Vector2(2,18),p + Vector2(16,18),Color("#1b2431"),1)
                 if variation == 6:
                     draw_rect(Rect2(p + Vector2(7,23), Vector2(9,2)), Color("#596266"))
+                var biome: int = int(biomes[y][x])
+                if biome == 1 and variation % 3 == 0:
+                    draw_line(p + Vector2(6,26),p + Vector2(9,16),Color("#659b61"),2)
+                    draw_line(p + Vector2(15,25),p + Vector2(18,13),Color("#4a8659"),2)
+                elif biome == 2 and variation % 4 == 0:
+                    draw_circle(p + Vector2(12,16),4,Color("#724d82"))
+                    draw_circle(p + Vector2(16,11),2,Color("#a074ae"))
+                elif biome == 3 and variation % 3 == 0:
+                    draw_line(p + Vector2(4,22),p + Vector2(24,20),Color("#88654a"),2)
+                    draw_rect(Rect2(p + Vector2(20,8),Vector2(5,7)),Color("#75543b"))
     for base in settlements:
         var origin: Vector2 = Vector2(base.p) * TILE
         var color: Color = FACTIONS[int(base.team)]
@@ -598,6 +608,8 @@ func _draw() -> void:
         draw_rect(Rect2(origin - Vector2(5,1),Vector2(40,29)),Color("#667281"))
         draw_rect(Rect2(origin + Vector2(5,-16),Vector2(20,27)),color)
         draw_rect(Rect2(origin + Vector2(11,13),Vector2(10,20)),Color("#10131a"))
+        draw_rect(Rect2(origin + Vector2(-5,-1),Vector2(40,4)),Color("#d3b888"))
+        draw_rect(Rect2(origin + Vector2(14,-24),Vector2(3,13)),Color("#d7d4cb"))
     for node in resource_nodes:
         if int(node.amount) <= 0:
             continue
@@ -637,6 +649,9 @@ func _draw() -> void:
         draw_circle(mp + Vector2(15,15),13 if int(m.kind) == 2 else 9,mc)
         draw_circle(mp + Vector2(11,12),2,Color("#f6d3a7"))
         draw_circle(mp + Vector2(19,12),2,Color("#f6d3a7"))
+        if int(m.kind) == 2:
+            draw_line(mp+Vector2(7,3),mp+Vector2(3,-8),Color("#e3594c"),4)
+            draw_line(mp+Vector2(23,3),mp+Vector2(27,-8),Color("#e3594c"),4)
     for f in fighters:
         if f.p.x < xmin or f.p.x > xmax or f.p.y < ymin or f.p.y > ymax:
             continue
@@ -648,6 +663,10 @@ func _draw() -> void:
         draw_rect(Rect2(p + Vector2(5,7),Vector2(15,17)),cloak)
         draw_rect(Rect2(p + Vector2(7,3),Vector2(12,8)),Color("#77889b"))
         draw_rect(Rect2(p + Vector2(9,10),Vector2(7,5)),Color("#202a38"))
+        if str(f.profession) == "Mage" or str(f.profession) == "Necromancer":
+            draw_circle(p + Vector2(24,9),4,Color("#a875da"))
+        elif str(f.profession) == "Worker":
+            draw_rect(Rect2(p + Vector2(21,9),Vector2(4,11)),Color("#c79c56"))
         draw_rect(Rect2(p + Vector2(22,8),Vector2(3,15)),Color("#bac6c5"))
         if f.hp < 5:
             draw_rect(Rect2(p + Vector2(2,-4),Vector2(24,3)),Color("#632d35"))
