@@ -26,6 +26,25 @@ jobs:
           if [ ! -f "$HOME/.android/debug.keystore" ]; then
             keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
+      - name: Configure Godot Java and Android SDK paths
+        shell: bash
+        run: |
+          set -eux
+          JAVA_BIN="$(readlink -f "$(command -v javac)")"
+          JAVA_HOME_DETECTED="$(dirname "$(dirname "$JAVA_BIN")")"
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/opt/android-sdk}}"
+          test -f "$JAVA_HOME_DETECTED/bin/javac"
+          test -d "$SDK_DIR"
+          mkdir -p "$HOME/.config/godot"
+          cat > "$HOME/.config/godot/editor_settings-4.tres" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/java_sdk_path = "$JAVA_HOME_DETECTED"
+          export/android/android_sdk_path = "$SDK_DIR"
+          EOF
+          echo "Detected Java: $JAVA_HOME_DETECTED"
+          echo "Detected Android SDK: $SDK_DIR"
       - name: Import and validate project
         shell: bash
         run: |
