@@ -188,6 +188,35 @@ func simulate() -> void:
                 if accessible(f.p + random_move):
                     f.p += random_move
     fighters = fighters.filter(func(f): return f.hp > 0)
+    # Nearby attackers besiege strongholds. Capturing a base transfers its
+    # resources and territory, but does not modify any device data.
+    for base in settlements:
+        var attackers := [0,0,0]
+        var defenders := 0
+        for f in fighters:
+            var range_to_base: int = abs(f.p.x - base.p.x) + abs(f.p.y - base.p.y)
+            if range_to_base <= 3:
+                if int(f.team) == int(base.team):
+                    defenders += 1
+                else:
+                    attackers[int(f.team)] += 1
+        var strongest := 0
+        for team in range(1,3):
+            if attackers[team] > attackers[strongest]:
+                strongest = team
+        if attackers[strongest] > defenders and attackers[strongest] > 0:
+            base.hp -= maxi(1,attackers[strongest] - defenders)
+            if int(base.hp) <= 0:
+                var previous: int = int(base.team)
+                base.team = strongest
+                base.hp = 35
+                base.wood = int(base.wood) / 2
+                base.stone = int(base.stone) / 2
+                base.food = int(base.food) / 2
+                base.level = maxi(1,int(base.level)-1)
+                events = TEAM_NAMES[strongest] + " captured a fortress from " + TEAM_NAMES[previous] + "!"
+        elif defenders > 0:
+            base.hp = mini(35,int(base.hp)+1)
     if turn % 25 == 0 and fighters.size() < 120:
         for team in range(3):
             var parents := fighters.filter(func(f): return f.team == team)
