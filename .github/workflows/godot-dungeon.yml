@@ -36,12 +36,15 @@ jobs:
           test -f "$JAVA_HOME_DETECTED/bin/javac"
           test -d "$SDK_DIR"
           mkdir -p "$HOME/.config/godot"
-          cat > "$HOME/.config/godot/editor_settings-4.tres" <<EOF
+          cat > "$HOME/.config/godot/editor_settings-4.4.tres" <<EOF
           [gd_resource type="EditorSettings" format=3]
 
           [resource]
           export/android/java_sdk_path = "$JAVA_HOME_DETECTED"
           export/android/android_sdk_path = "$SDK_DIR"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
           EOF
           echo "Detected Java: $JAVA_HOME_DETECTED"
           echo "Detected Android SDK: $SDK_DIR"
