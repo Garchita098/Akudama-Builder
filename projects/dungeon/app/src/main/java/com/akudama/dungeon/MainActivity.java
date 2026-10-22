@@ -146,7 +146,7 @@ public class MainActivity extends Activity {
     }
     class DungeonView extends View{
         final Paint p=new Paint();
-        float zoom=1.15f,offsetX=0,offsetY=0,lastX,lastY;
+        float zoom=1.15f,offsetX=0,offsetY=0,lastX,lastY; // movable dungeon camera
         DungeonView(){super(MainActivity.this);setBackgroundColor(0xff090d15);}
         void rect(Canvas c,float x,float y,float w,float h,int color){
             p.setColor(color);p.setStyle(Paint.Style.FILL);
