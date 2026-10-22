@@ -6,7 +6,7 @@ on:
       project:
         description: 'Project name (legacy or folder name under projects/)'
         required: true
-        default: 'legacy'
+        default: 'dungeon'
         type: string
   push:
     paths:
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      PROJECT: ${{ github.event.inputs.project || (contains(toJSON(github.event.commits), 'projects/dungeon/') && 'dungeon') || 'studio' }}
+      PROJECT: ${{ github.event.inputs.project || 'dungeon' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,14 +74,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Akudama-Build-Diagnostics-${{ github.event.inputs.project || (contains(toJSON(github.event.commits), 'projects/dungeon/') && 'dungeon') || 'studio' }}
+          name: Akudama-Build-Diagnostics-${{ github.event.inputs.project || 'dungeon' }}
           path: build-results/
           if-no-files-found: ignore
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Akudama-APK-${{ github.event.inputs.project || (contains(toJSON(github.event.commits), 'projects/dungeon/') && 'dungeon') || 'studio' }}
+          name: Akudama-APK-${{ github.event.inputs.project || 'dungeon' }}
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
@@ -90,8 +90,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      PROJECT: ${{ github.event.inputs.project || (contains(toJSON(github.event.commits), 'projects/dungeon/') && 'dungeon') || 'studio' }}
-      TEST_CONFIG: tests/${{ github.event.inputs.project || (contains(toJSON(github.event.commits), 'projects/dungeon/') && 'dungeon') || 'studio' }}.json
+      PROJECT: ${{ github.event.inputs.project || 'dungeon' }}
+      TEST_CONFIG: tests/${{ github.event.inputs.project || 'dungeon' }}.json
     steps:
       - name: Checkout test scripts
         uses: actions/checkout@v4
@@ -111,7 +111,7 @@ jobs:
       - name: Download built APK
         uses: actions/download-artifact@v4
         with:
-          name: Akudama-APK-${{ github.event.inputs.project || (contains(toJSON(github.event.commits), 'projects/dungeon/') && 'dungeon') || 'studio' }}
+          name: Akudama-APK-${{ github.event.inputs.project || 'dungeon' }}
           path: apk
 
       - name: Enable KVM acceleration
@@ -134,6 +134,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Android-Emulator-Diagnostics-${{ github.event.inputs.project || (contains(toJSON(github.event.commits), 'projects/dungeon/') && 'dungeon') || 'studio' }}
+          name: Android-Emulator-Diagnostics-${{ github.event.inputs.project || 'dungeon' }}
           path: test-results/
           if-no-files-found: ignore
