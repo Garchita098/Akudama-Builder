@@ -51,7 +51,14 @@ jobs:
       - name: Recover lossless PNG art assets
         shell: bash
         run: |
-          python3 projects/dungeon_godot/tools/build_assets.py
+          if compgen -G "projects/dungeon_godot/assets_payload/*.b85" > /dev/null; then
+            if ! command -v python3 >/dev/null 2>&1; then
+              apt-get update && apt-get install -y --no-install-recommends python3
+            fi
+            python3 projects/dungeon_godot/tools/build_assets.py
+          else
+            echo "No binary asset payloads to recover; embedded sprite data is loaded by Godot."
+          fi
       - name: Import and validate project
         shell: bash
         run: |
