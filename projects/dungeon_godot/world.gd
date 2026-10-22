@@ -230,7 +230,13 @@ func simulate() -> void:
     refresh()
 
 func worker_action(f: Dictionary) -> bool:
-    var home: Dictionary = settlements[int(f.team)]
+    var home: Dictionary = {}
+    for base in settlements:
+        if int(base.team) == int(f.team):
+            home = base
+            break
+    if home.is_empty():
+        return false
     var target: Dictionary = {}
     var nearest := 99999
     for node in resource_nodes:
@@ -272,7 +278,7 @@ func update_economy() -> void:
         for fighter in fighters:
             if int(fighter.team) == team and int(fighter.hp) > 0:
                 population += 1
-        base.food = maxi(0,int(base.food) - maxi(1,population / 12))
+        base.food = maxi(0,int(base.food) - maxi(1,int(population / 12)))
         if int(base.wood) >= 12 and int(base.stone) >= 10 and int(base.level) < 5:
             base.wood -= 12
             base.stone -= 10
