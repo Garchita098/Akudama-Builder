@@ -33,11 +33,12 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(14,16,14,10);
+        root.setPadding(14,10,14,10);
+        root.setFitsSystemWindows(true);
         root.setBackgroundColor(0xff0b111d);
         TextView title=new TextView(this);
-        title.setText("LIVING DUNGEON  ·  0.2");
-        title.setTextColor(Color.WHITE); title.setTextSize(23);
+        title.setText("LIVING DUNGEON  ·  0.3");
+        title.setTextColor(0xffe1c393); title.setTextSize(21);
         root.addView(title);
         stats=new TextView(this); stats.setTextColor(0xffacd3ea);stats.setTextSize(14);
         root.addView(stats);
@@ -139,27 +140,77 @@ public class MainActivity extends Activity {
     void updateUi(){
         int[] counts=new int[3];
         for(Unit u:units)counts[u.team]++;
-        stats.setText("Ход "+tick+"   ⚔ "+kills+"   ● "+counts[0]+"   ● "+counts[1]+"   ● "+counts[2]+(paused?"   ПАУЗА":""));
+        stats.setText("Ход "+tick+"   ⚔ "+kills+"    Синие "+counts[0]+"  Алые "+counts[1]+"  Зелёные "+counts[2]+(paused?"   ПАУЗА":""));
         feed.setText(lastEvent);
         dungeon.invalidate();
     }
     class DungeonView extends View{
-        Paint p=new Paint(3);
-        DungeonView(){super(MainActivity.this);setBackgroundColor(0xff0c1524);}
+        final Paint p=new Paint();
+        float zoom=1.15f,offsetX=0,offsetY=0,lastX,lastY;
+        DungeonView(){super(MainActivity.this);setBackgroundColor(0xff090d15);}
+        void rect(Canvas c,float x,float y,float w,float h,int color){
+            p.setColor(color);p.setStyle(Paint.Style.FILL);
+            c.drawRect(x,y,x+w,y+h,p);
+        }
+        // Pixel-art warriors made from geometry, no external game engine required.
+        void warrior(Canvas c,Unit u,float x,float y,float cs){
+            c.save();c.translate(x,y);float q=cs/12f;c.scale(q,q);
+            rect(c,2,10,8,2,0xff07090d);
+            rect(c,3,3,6,7,0xff101219);
+            rect(c,2,6,2,3,0xffc4aa79);rect(c,8,6,2,3,0xffc4aa79);
+            rect(c,4,8,2,3,0xff343747);rect(c,7,8,2,3,0xff343747);
+            int cloak=COLORS[u.team];
+            rect(c,3,3,6,6,cloak);rect(c,4,4,4,4,0xff202937);
+            rect(c,3,1,6,4,0xff252b35);rect(c,4,0,4,2,0xff8797a4);
+            rect(c,4,3,4,1,0xff0a1018);
+            rect(c,5,3,1,1,0xffe8caa2);rect(c,7,3,1,1,0xffe8caa2);
+            rect(c,10,4,1,6,0xffaeb6b6);rect(c,10,3,2,2,0xffeff0e4);
+            rect(c,1,6,2,4,0xff785c38);rect(c,1,7,2,1,0xffccae74);
+            rect(c,1,12,10,1,0xff080b0f);
+            c.restore();
+        }
         @Override protected void onDraw(Canvas c){
             super.onDraw(c);
-            float cell=Math.min(getWidth()/(float)W,getHeight()/(float)H);
-            float ox=(getWidth()-W*cell)/2f,oy=(getHeight()-H*cell)/2f;
+            float cell=Math.min(getWidth()/(float)W,getHeight()/(float)H)*zoom;
+            float ox=(getWidth()-W*cell)/2f+offsetX,oy=(getHeight()-H*cell)/2f+offsetY;
+            c.drawColor(0xff090d15);
             for(int x=0;x<W;x++)for(int y=0;y<H;y++){
-                p.setColor(wall[x][y]?0xff26374b:((x+y)%2==0?0xff111f2f:0xff152638));
-                c.drawRect(ox+x*cell,oy+y*cell,ox+(x+1)*cell+0.2f,oy+(y+1)*cell+0.2f,p);
+                float px=ox+x*cell,py=oy+y*cell;
+                int seed=(x*71+y*193+x*y*13)&255;
+                if(wall[x][y]){
+                    rect(c,px,py,cell,cell,0xff0c141d);
+                    rect(c,px+1,py+1,cell-2,cell*.33f,0xff566376);
+                    rect(c,px+1,py+cell*.34f,cell-2,cell*.62f,0xff293646);
+                    rect(c,px+2,py+cell*.39f,cell*.46f,1,0xff131c2b);
+                    rect(c,px+cell*.5f,py+cell*.67f,cell*.44f,1,0xff141c2b);
+                    rect(c,px+2,py+cell*.77f,cell*.24f,1,0xff455364);
+                }else{
+                    rect(c,px,py,cell,cell,seed%3==0?0xff222834:0xff292d38);
+                    rect(c,px+1,py+1,cell-2,cell-2,seed%4==0?0xff363844:0xff303440);
+                    rect(c,px+cell*.5f,py+1,1,cell*.45f,0xff191f2a);
+                    rect(c,px+1,py+cell*.52f,cell*.5f,1,0xff161c29);
+                    if(seed%7==0)rect(c,px+cell*.22f,py+cell*.78f,cell*.24f,1,0xff68716c);
+                    if(seed%23==0){
+                        rect(c,px+cell*.33f,py+cell*.26f,cell*.33f,cell*.12f,0xff4b2626);
+                    }
+                }
             }
             for(Unit u:units){
-                p.setColor(COLORS[u.team]);
-                c.drawCircle(ox+(u.x+0.5f)*cell,oy+(u.y+0.5f)*cell,cell*0.38f,p);
-                p.setColor(0xff17202b);
-                c.drawCircle(ox+(u.x+0.5f)*cell,oy+(u.y+0.5f)*cell,cell*0.13f,p);
+                float px=ox+u.x*cell,py=oy+u.y*cell;
+                warrior(c,u,px,py,cell);
+                if(u.hp<4){
+                    rect(c,px+2,py,cell-4,2,0xff431921);
+                    rect(c,px+2,py,(cell-4)*u.hp/4f,2,0xffb5cf72);
+                }
             }
+        }
+        @Override public boolean onTouchEvent(MotionEvent e){
+            if(e.getAction()==MotionEvent.ACTION_DOWN){lastX=e.getX();lastY=e.getY();return true;}
+            if(e.getAction()==MotionEvent.ACTION_MOVE){
+                offsetX+=e.getX()-lastX;offsetY+=e.getY()-lastY;
+                lastX=e.getX();lastY=e.getY();invalidate();return true;
+            }
+            return true;
         }
     }
 }
