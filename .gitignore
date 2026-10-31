@@ -33,3 +33,13 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Godot editor cache and generated metadata
+.godot/
+*.uid
+projects/dungeon_godot/.cache/
+projects/dungeon_godot/icon.svg.import
+
+# Python
+__pycache__/
+*.pyc
