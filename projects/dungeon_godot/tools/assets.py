@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Slice, resize, and palette-quantize pixel art for Living Dungeon.
 
+AI-generated sheets are a separate entry point: tools/ingest_ai.py keys out
+the magenta background, mode-pools to the real pixel grid, and quantizes to
+art/style/palette.png. This file still slices sheets that are already pixels.
+
 Writes a Godot 4.4 art/ tree and .import sidecars. The running game loads
 those textures. This tool slices and quantizes; it does not change gameplay.
 
