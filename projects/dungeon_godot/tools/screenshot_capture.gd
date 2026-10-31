@@ -3,9 +3,9 @@ extends Node
 ## Launch through tools/screenshot.sh. The game scene is unchanged.
 
 const VIEW_SIZE := Vector2i(720, 1280)
-const TILE := 30.0
 
 var world
+var tile_size := 32.0
 var args := {}
 var default_camera_pos := Vector2.ZERO
 var default_camera_zoom := Vector2.ONE
@@ -25,6 +25,7 @@ func _boot() -> void:
         return
     world = packed.instantiate()
     add_child(world)
+    tile_size = float(world.TILE)
     if world.camera == null:
         push_error("Game camera was not created")
         get_tree().quit(1)
@@ -154,17 +155,17 @@ func _apply_preset(preset: String) -> bool:
     var world_point := default_camera_pos
     match preset:
         "overview":
-            zoom = 0.48
-            world_point = Vector2(30, 28) * TILE + Vector2(TILE * 0.5, TILE * 0.5)
+            zoom = 0.5
+            world_point = Vector2(30, 28) * tile_size + Vector2(tile_size * 0.5, tile_size * 0.5)
         "settlement":
             if world.settlements.is_empty():
                 push_error("No settlement to frame")
                 return false
-            zoom = 1.7
+            zoom = 2.0
             var base = world.settlements[0].p
-            world_point = Vector2(base) * TILE + Vector2(TILE * 0.5, TILE * 0.25)
+            world_point = Vector2(base) * tile_size + Vector2(tile_size * 0.5, tile_size * 0.25)
         "units":
-            zoom = 2.3
+            zoom = 2.0
             world_point = _unit_focus()
         _:
             push_error("Unknown screenshot preset: " + preset)
@@ -187,13 +188,13 @@ func _camera_for(world_point: Vector2, screen_point: Vector2, zoom: Vector2) -> 
 func _custom_world_point() -> Vector2:
     if args.has("tile"):
         var tile := _parse_vec(str(args["tile"]))
-        return tile * TILE + Vector2(TILE * 0.5, TILE * 0.5)
+        return tile * tile_size + Vector2(tile_size * 0.5, tile_size * 0.5)
     if args.has("camera"):
         return _parse_vec(str(args["camera"]))
     var env_tile := OS.get_environment("LIVING_DUNGEON_TILE")
     if env_tile != "":
         var tile_from_env := _parse_vec(env_tile)
-        return tile_from_env * TILE + Vector2(TILE * 0.5, TILE * 0.5)
+        return tile_from_env * tile_size + Vector2(tile_size * 0.5, tile_size * 0.5)
     return _parse_vec(_opt("camera", "LIVING_DUNGEON_CAMERA", "900,900"))
 
 
@@ -223,7 +224,7 @@ func _unit_focus() -> Vector2:
         if score > best_score:
             best_score = score
             best_p = Vector2(fp)
-    return best_p * TILE + Vector2(TILE * 0.5, TILE * 0.4)
+    return best_p * tile_size + Vector2(tile_size * 0.5, tile_size * 0.4)
 
 
 func _parse_vec(text: String) -> Vector2:

@@ -1,0 +1,10 @@
+DungeonTileset II v1.7
+Author: Robert (0x72), with recolor help credited by the author to GrafxKid
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+Source page: https://0x72.itch.io/dungeontileset-ii
+
+Files in this folder are the unmodified v1.7 sheet, the low-wall autotile atlas,
+the author's frame list, and the autotile README shipped with that release.
+Living Dungeon slices and recolors copies under art/. The game does not load
+this folder at runtime.
