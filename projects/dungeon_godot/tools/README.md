@@ -1,8 +1,70 @@
 # Living Dungeon graphics tools
 
-Tooling for iterating on Living Dungeon art. The game draws the textures under `art/` (see `CREDITS.md`). `tools/build_visual_art.py` slices the CC0 tileset in `third_party/0x72/` and writes those files. Gameplay and save data are unchanged.
+Tooling for iterating on Living Dungeon art. The game draws the textures under `art/` (see `CREDITS.md`). `tools/build_visual_art.py` slices the CC0 tileset in `third_party/0x72/` and writes those files. New original art is generated outside this repo and brought in with `tools/ingest_ai.py`. The target look is `art/STYLE_BIBLE.md`. Gameplay and save data are unchanged.
 
 Godot **4.4.1** matches `project.godot` and the `Build Living Dungeon Godot APK` workflow.
+
+## Original AI art loop
+
+The style rules (palette, 16×28 unit canvas, 3/4 view on the orthogonal grid, 1px outline) live in `art/STYLE_BIBLE.md`. Paste a template from `tools/prompt_templates.md` into the image generator. Ask it for a PNG on flat magenta `#FF00FF`, with no floor and no cast shadow.
+
+```bash
+cd projects/dungeon_godot
+
+# 1. Generate. Save the PNG, for example ~/gen/azure_warrior_idle.png
+
+# 2. Ingest. This overwrites the live textures the game already loads.
+python3 tools/ingest_ai.py ingest \
+  --input ~/gen/azure_warrior_idle.png \
+  --kind units \
+  --faction azure \
+  --name warrior_idle \
+  --size 16x28 \
+  --anchor feet \
+  --outline \
+  --preview previews/azure_warrior_idle_contact.png
+
+# 3. Preview. Open the contact sheet. Frames are nearest-neighbor scaled.
+#    previews/ is ignored by Godot (.gdignore).
+
+# 4. Wire. Nothing else to edit when the stem matches presentation.gd:
+#    art/units/azure/warrior_idle_0.png ... warrior_idle_3.png
+#    Restart Godot, or let the editor reimport the PNGs.
+
+# 5. Screenshot the same seeded world.
+tools/screenshot.sh --preset units --seconds 3 --seed 12047
+```
+
+`--kind units` requires `--faction` (`azure`, `crimson`, `verdant`, `shared`, or `monsters`). Other kinds are `tiles`, `buildings`, `fx`, and `ui`. A single attack frame needs `--force-index` so the file is `warrior_hit_0.png`. Full-bleed floor tiles have no chroma background: pass `--key none`.
+
+To review without replacing the game's current art, set `--art-root` to another directory. The master palette defaults to `art/style/palette.png` (the same colors as `palette.gpl` and `palette.hex`). Dithering is off unless you pass `--dither floyd`.
+
+```bash
+# Sheet of loose objects (connected components) or a known grid
+python3 tools/ingest_ai.py ingest \
+  --input ~/gen/props.png \
+  --kind tiles \
+  --name prop \
+  --size 16x16 \
+  --anchor feet \
+  --outline
+
+python3 tools/ingest_ai.py ingest \
+  --input ~/gen/terrain_sheet.png \
+  --kind tiles \
+  --name floor \
+  --grid 1024x1024 \
+  --separate grid \
+  --key none \
+  --size 16x16
+
+# Pipeline check, including the committed synthetic sheet
+python3 tools/ingest_ai.py self-test
+```
+
+`ingest` keys `#FF00FF` within `--tolerance` (default 40). If that color is not the flat border, it falls back to the border color. Edge pixels are despilled, alpha is forced to 0 or 255, and the image is mode-pooled onto the estimated pixel grid (or `--pixel-grid N`) instead of filtered. Output PNGs get the same Godot 4.4 `.import` sidecar as `assets.py`.
+
+The synthetic fixture is `tools/fixtures/ai_ingest_sheet.png`. `self-test` rebuilds it in memory and fails if the file drifts. `art/style/example_contact.png` is that fixture after ingest: two figures, outlined, feet on the bottom of a 16×28 canvas.
 
 ## Iteration loop
 
@@ -15,6 +77,7 @@ Godot **4.4.1** matches `project.godot` and the `Build Living Dungeon Godot APK`
 ```bash
 cd projects/dungeon_godot
 python3 tools/assets.py self-test
+python3 tools/ingest_ai.py self-test
 tools/screenshot.sh --preset all --seconds 3 --seed 12047
 ```
 
@@ -152,6 +215,7 @@ textures/canvas_textures/default_texture_filter=0
 
 ```bash
 python3 projects/dungeon_godot/tools/assets.py self-test
+python3 projects/dungeon_godot/tools/ingest_ai.py self-test
 python3 projects/dungeon_godot/tools/assets.py check-screenshot screenshots/*.png
 ```
 
@@ -163,7 +227,7 @@ python3 projects/dungeon_godot/tools/assets.py check-screenshot screenshots/*.pn
 
 `.github/workflows/godot-dungeon.yml` (`Build Living Dungeon Godot APK`) runs on pull requests and on pushes to `main` that touch `projects/dungeon_godot/**` or the workflow file.
 
-- `import-and-screenshots` installs Godot 4.4.1, imports the project, fails on script or parse errors, runs `assets.py self-test` and `screenshot.sh`, and uploads `Living-Dungeon-Screenshots`.
+- `import-and-screenshots` installs Godot 4.4.1, imports the project, fails on script or parse errors, runs `assets.py self-test` and `ingest_ai.py self-test` in the same step, runs `screenshot.sh`, and uploads `Living-Dungeon-Screenshots`.
 - `export-android` is the existing debug APK job on `barichello/godot-ci:4.4.1`. It generates a debug keystore in the runner, exports `build/living-dungeon-godot.apk`, and uploads `Living-Dungeon-Godot-APK`. No repository secrets are required.
 
 ## Limits

@@ -28,7 +28,9 @@ jobs:
       - name: Install Godot 4.4.1
         run: projects/dungeon_godot/tools/screenshot.sh --install-godot
       - name: Asset pipeline self-test
-        run: python3 projects/dungeon_godot/tools/assets.py self-test
+        run: |
+          python3 projects/dungeon_godot/tools/assets.py self-test
+          python3 projects/dungeon_godot/tools/ingest_ai.py self-test
       - name: Import and validate project
         run: |
           set -o pipefail

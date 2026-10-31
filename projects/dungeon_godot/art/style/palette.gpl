@@ -1,0 +1,44 @@
+GIMP Palette
+Name: Living Dungeon
+Columns: 8
+#
+  4   4  12 void
+  9  10  24 abyss
+ 25  26  50 dusk
+ 59  44  55 floor
+ 36  44  89 slate
+ 60  75 140 steel
+144 163 208 ice
+ 71  94 161 azure
+122 154 213 azure_bright
+ 44  45  44 stone
+ 90  85  89 ash
+135 122 129 fog
+190 177 184 haze
+ 26  15  33 violet_shadow
+ 44  14  74 violet
+ 81  16 141 violet_lit
+177  83 231 violet_hot
+ 17  46  57 cyan_shadow
+ 15 102 115 cyan
+ 75 215 222 cyan_hot
+107 237 241 cyan_core
+ 47  15  14 crimson_shadow
+ 90  36  29 crimson
+144  55  32 crimson_lit
+200  92  36 crimson_hot
+164  70  36 ember
+213 107  30 fire
+255 206 107 flame
+255 247 191 spark
+ 99  76  46 gold_dark
+181 148 101 gold
+ 27  41  24 verdant_shadow
+ 64  91  34 verdant
+109 140  54 verdant_lit
+177 199 129 verdant_hot
+ 87  75  68 bone_shadow
+159 146 129 bone
+216 214 193 bone_lit
+250 250 235 bone_hot
+101  67  79 rose
