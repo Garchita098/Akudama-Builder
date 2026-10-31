@@ -4,7 +4,7 @@ Approved target: `art/style/reference/concept_target.jpg` (portrait 720×1280). 
 
 The master palette is 40 colors in `art/style/palette.png`, `art/style/palette.gpl` (GIMP, named), and `art/style/palette.hex` (one `RRGGBB` per line, same order). `tools/ingest_ai.py` quantizes to this palette. Godot ignores `art/style/` (`.gdignore`); the game does not load these files.
 
-This document does not change gameplay, the tile grid, or the renderer.
+The tile grid stays 32 units. New art is drawn at 1 texel per world unit. Legacy 16px CC0 sprites are still drawn at 2× so the placeholders keep their old size.
 
 ## What the target is
 
@@ -14,7 +14,7 @@ Dark-fantasy pixel art. Indigo and violet stone, teal fog, orange fire as the wa
 
 The approved picture is isometric (2:1 diamonds, camera looking down the north edge of each cell). The running game is not.
 
-`world.gd` keeps an orthogonal grid, `TILE := 32`. Floors and walls are 16×16 textures stretched into that 32×32 cell. Sprites go through `_draw_sprite`, which draws the texture at 2× and pins the foot to the bottom center of the cell (`TILE * 0.5`, `TILE - 1`). Pathfinding, territory, the minimap, light pools, and input all index square cells. An isometric renderer would replace drawing, depth sort, and diamond picking. That migration is out of scope here.
+`world.gd` keeps an orthogonal grid, `TILE := 32`. A 32×32 floor or wall texture fills that cell at 1×. A legacy 16×16 CC0 tile is stretched into the same cell. Sprites go through `_draw_sprite`, which pins the foot to the bottom center of the cell (`TILE * 0.5`, `TILE - 1`). A 32×48 humanoid is drawn at 1×. A 16×28 placeholder is drawn at 2×, so it still stands about one cell wide. Buildings stay on the old canvases and are drawn at 2×. Pathfinding, territory, the minimap, light pools, and input all index square cells. An isometric renderer would replace drawing, depth sort, and diamond picking. That migration is out of scope here.
 
 **Recommendation: keep the orthogonal grid and paint 3/4-view sprites on top of top-down square tiles.**
 
@@ -23,27 +23,29 @@ That is the projection `tools/prompt_templates.md` asks the generator for, and t
 | Approach | What it buys | What it costs |
 | --- | --- | --- |
 | Orthogonal grid, 3/4 sprites (use this) | Fits `TILE`, `_draw_sprite`, autotiles, and the existing art paths. Faction silhouettes, palette, fire, and fog still carry the target. | Floors stay squares. The diamond ground plane in the concept is not reproduced. |
-| True 2:1 isometric | Matches the target camera. A later migration would use 64×32 world diamonds (2 source pixels per world pixel, same density as today) or 32×16 source diamonds if the 2× sprite scale remains. | New tile mesh, painter's algorithm, and pick tests. Autotiles, shadows, and the minimap all change. Do not start that in an art-ingest change. |
+| True 2:1 isometric | Matches the target camera. A later migration would use 64×32 world diamonds (2 source pixels per world pixel at the new 1× density) or 32×16 source diamonds if sprites stay doubled. | New tile mesh, painter's algorithm, and pick tests. Autotiles, shadows, and the minimap all change. Do not start that in an art-ingest change. |
 | Orthogonal logic with diamonds drawn on top | The simulation could stay on square cells while the picture becomes iso. | Picking and depth sort still have to become diamond-aware. Same class of renderer change. |
 
-Until that migration, do not generate isometric diamond tiles. They will not fit the 16×16 floor slot.
+Until that migration, do not generate isometric diamond tiles. They will not fit the 32×32 floor slot.
 
 ## Pixel density and canvas sizes
 
-One texel in `art/tiles`, `art/units`, `art/buildings`, and `art/fx` is drawn at 2× into the 32-unit cell. Author those files at the sizes below. Do not pre-scale them to 32.
+New tiles, units, props, and bosses are authored at 1 texel = 1 world unit. `TILE` stays 32. On a 720×1280 portrait at zoom 1 the camera shows about 22×40 cells of the 96×96 map (overview zoom 0.5 shows about 45×80). Drawing 32×32 tiles at 2× would mean `TILE := 64` and, at zoom 1, only about 11×20 cells. That crop is too tight, so source tiles grow to 32×32 and are drawn at 1×.
 
-UI skins are the exception. `art/ui/panel.png` (48×48, 8px nine-slice) and `art/ui/button.png` (32×32, 6px nine-slice) are `StyleBoxTexture`s. They are not passed through `_draw_sprite`, so one texel is one screen pixel at the 720×1280 viewport.
+CC0 placeholders are still the old half-size files. `_content_scale` draws a texture at 2× when it is 16px wide, or when it is the legacy 32×36 demon. A 32×32, 32×48, or ~64×64 file is drawn at 1×. Buildings are the exception: tier art stays 48×48, 64×64, and 96×80 and `_draw_keep` always draws it at 2× (3, 4, and 6 cells). A 64×64 boss is a unit, so it is 1× and about two cells wide.
+
+UI skins are also 1:1 with the screen. `art/ui/panel.png` (48×48, 8px nine-slice) and `art/ui/button.png` (32×32, 6px nine-slice) are `StyleBoxTexture`s. They are not passed through `_draw_sprite`.
 
 | Slot | PNG size | Anchor | Notes |
 | --- | --- | --- | --- |
-| Floor / wall cell | 16×16 | full-bleed | No outline. Edges must tile. Wall autotile cells stay `wall_{col}_{row}.png`. |
-| Prop on a cell (crate, rock, mushroom, skull) | 16×16 | feet | May be transparent around the object. |
-| Humanoid (knight, orc, elf, mage, worker, guard, necromancer) | 16×28 | feet, bottom row | Same canvas for every faction. Bulk and height live inside the canvas so feet share a baseline. |
-| Small creature (goblin, skeleton) | 16×16 | feet | |
-| Boss (golem, demon) | 32×36 | feet | Matches the existing large-monster slot. |
-| Settlement | tier 0: 48×48, tier 1: 64×64, tier 2: 96×80 | feet | One file per faction: `buildings/tier{N}_{azure\|crimson\|verdant}.png`. |
-| Combat FX, torch, portal | 16×16, 4 frames | center | Torch and portal are `fx/{name}_{0..3}.png`. |
-| Light blob | 64×64 | center | `fx/glow.png`. Soft in shape, hard in alpha (0 or 255 only). |
+| Floor / wall cell | 32×32 | full-bleed | No outline. Edges must tile. Drawn at 1× into the 32-unit cell. Legacy 16×16 files still stretch to the cell. Wall autotile cells stay `wall_{col}_{row}.png`. |
+| Prop on a cell (crate, rock, mushroom, skull) | 32×32 | feet | May be transparent around the object. A 16×16 placeholder is drawn at 2×. |
+| Humanoid (knight, orc, elf, mage, worker, guard, necromancer) | 32×48 | feet, bottom row | Same canvas for every faction. Bulk and height live inside the canvas so feet share a baseline. About one cell wide and 1.5 cells tall. |
+| Small creature (goblin, skeleton) | 32×32 | feet | |
+| Boss (golem, demon) | 64×64 | feet | About two cells wide. The legacy demon file is 32×36 and is still drawn at 2×. |
+| Settlement | tier 0: 48×48, tier 1: 64×64, tier 2: 96×80 | feet | One file per faction: `buildings/tier{N}_{azure\|crimson\|verdant}.png`. Drawn at 2×. |
+| Combat FX, torch, portal | 16×16, 4 frames | center | Torch and portal are `fx/{name}_{0..3}.png`. 16px FX is drawn at 2× (32 world units). A replacement 32×32 file is drawn at 1× and lands on the same footprint. |
+| Light blob | 64×64 | center | `fx/glow.png`. Soft in shape, hard in alpha (0 or 255 only). Drawn to the light radius, not at 1×. |
 | UI icon | 16×16 | center | Drawn later at 2× inside a button, or 32×32 if a skin uses it at 1:1. |
 | Panel / button | 48×48 and 32×32 | nine-slice | Keep the current margin widths if a skin is replaced. |
 
@@ -147,7 +149,7 @@ Mushroom caps use `crimson_lit`. Stems use the bone ramp.
 
 ## Light
 
-Key light comes from the **upper right**. Lit planes face up and to the right. Form shadow sits on the lower left. One step darker is the shadow; do not stack two shadow colors on a 16px figure.
+Key light comes from the **upper right**. Lit planes face up and to the right. Form shadow sits on the lower left. One step darker is the shadow; do not stack two shadow colors on a figure.
 
 Practical lights are local and use colors already on the ramp:
 
@@ -164,12 +166,12 @@ No cast shadow baked into a sprite. The game draws `art/fx/shadow.png` under fee
 - Floor tiles, wall autotiles, and full-bleed UI nine-slices: **no outline**. An outline seams.
 - Fire, the magic circle, glow, and other FX: no void outline. The darkest step of that ramp is the rim.
 - Alpha is 0 or 255. No antialiased fringe, no semi-transparent edge, no magenta spill.
-- On a 16px unit, 1px is legal for an eye, a tooth, a weapon edge, or a specular. Larger surfaces (armor, cloak, mushroom cap, wall) are flat clusters of one ramp color.
+- On a 32×48 unit, 1px is legal for an eye, a tooth, a weapon edge, or a specular. Larger surfaces (armor, cloak, mushroom cap, wall) are flat clusters of one ramp color.
 - Do not dither. The ingest default is nearest color, dither off.
 
 ## Faction silhouettes
 
-Readable at 16×28, before color. Color then confirms it.
+Readable at 32×48, before color. Color then confirms it.
 
 | Faction | Silhouette | Color | Keep |
 | --- | --- | --- | --- |
@@ -177,7 +179,7 @@ Readable at 16×28, before color. Color then confirms it.
 | Crimson | Wide hunched body, big arms, low head, heavy weapon | `crimson` skin, dark armor from `crimson_shadow` and `stone`, fire on the camp | Low camp, braziers, ragged banners |
 | Verdant | Slim, hood or pointed ears, staff or bow, cloak narrower than the orc | `verdant` cloth, mushroom caps in `crimson_lit` | Grove, trunks, red and green caps |
 | Undead | Skull reads as `bone_hot` on `bone_shadow`. Thin limbs. Necromancer is a triangle robe in `violet` with a staff. | Bone ramp, violet cloth | Portal arch, not a faction keep |
-| Golem | Much wider than a humanoid. `stone` and `ash` body, `gold` cracks, small `bone_hot` teeth. Uses the 32×36 boss canvas. | Stone ramp plus gold | Not a settlement tier |
+| Golem | Much wider than a humanoid. `stone` and `ash` body, `gold` cracks, small `bone_hot` teeth. Uses the 64×64 boss canvas. | Stone ramp plus gold | Not a settlement tier |
 
 Teams in code stay `azure`, `crimson`, and `verdant`. Shared undead and necromancer stay under `art/units/shared/`. Monsters stay under `art/units/monsters/`.
 
@@ -203,9 +205,10 @@ Hard-edged clusters, 4 frames, 16×16, centered. The loop (torch, portal, fire, 
 `tools/ingest_ai.py` is how a generated PNG becomes a file the game can load:
 
 1. Flat chroma background, default pure magenta `#FF00FF`. No floor and no cast shadow in that background.
-2. Mode-pool down to the canvas size above. No bilinear filter.
-3. Quantize to `art/style/palette.png` with dithering off.
-4. Optional 1px `void` outline on units, props, and buildings.
-5. Alpha forced to 0 or 255. Feet sit on the bottom row of the unit canvas.
+2. Mode-pool down to the canvas size above. No bilinear filter. A detected pixel cell larger than 1/8 of the figure's shorter side is rejected, and the figure is mode-pooled straight to the canvas. `--pixel-grid 1` skips detection. `--pixel-grid N` (N > 1) forces an N-pixel cell.
+3. Quantize to `art/style/palette.png` with CIELAB distance and dithering off. Gold `#B59465` and `#634C2E` stay on the gold ramp. `--ramps auto` keeps only the ramps the figure's dominant colors use, plus outline.
+4. Despeckle. An isolated pixel whose color differs from all eight neighbours becomes the majority neighbour. A 1px `void` outline, a 1px gold buckle, and a 1px specular on the same ramp stay. Small islands on a ramp the sprite does not use (violet specks, rust on blue steel) are repainted from the surrounding ramp.
+5. Optional 1px `void` outline on units, props, and buildings.
+6. Alpha forced to 0 or 255. Feet sit on the bottom row of the unit canvas.
 
 Prompts that match these rules are in `tools/prompt_templates.md`. The command loop is in `tools/README.md`.

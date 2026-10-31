@@ -10,7 +10,7 @@ These prompts match `art/STYLE_BIBLE.md`:
 - Key light from the upper right. One-pixel near-black outline on characters, props, and buildings.
 - Colors from the master palette only: indigo and violet stone, azure / crimson / verdant factions, cyan magic, orange fire, gold trim, bone.
 
-Ingest reduces the PNG to the size in the template. A 1024px image of a 16×28 figure is the expected input. Do not draw the final 16×28 file by hand inside a huge canvas with a thick border of empty pixels around a tiny sprite; let the figure fill most of the frame, with magenta around it.
+Ingest reduces the PNG to the size in the template. A 1024px image of a 32×48 figure is the expected input. Do not draw the final 32×48 file by hand inside a huge canvas with a thick border of empty pixels around a tiny sprite; let the figure fill most of the frame, with magenta around it.
 
 ## Shared prefix
 
@@ -36,7 +36,7 @@ isometric diamond, oblique floor grid, side scroller, front portrait, turnaround
 
 ## Unit, four idle frames
 
-Canvas after ingest: 16×28, feet on the bottom row. `--kind units --faction {FACTION} --name {ROLE}_idle --size 16x28 --anchor feet --outline`
+Canvas after ingest: 32×48, feet on the bottom row. `--kind units --faction {FACTION} --name {ROLE}_idle --anchor feet --outline`
 
 ```
 {PREFIX}
@@ -63,11 +63,11 @@ Faction look lines:
 - Verdant worker: same elf, basket or sickle.
 - Verdant mage: same elf, staff topped with a mushroom cap `#903720`.
 - Necromancer (`--faction shared --name necro_idle`): triangle robe in violet `#2C0E4A` and `#51108D`, bone staff, skull face in bone `#D8D6C1`.
-- Skeleton (`--faction shared --name undead_idle`, ingest `--size 16x16`): thin skull and ribs, bone ramp only, eye is one `void` pixel. Short canvas.
-- Goblin (`--faction monsters --name goblin_idle`, `--size 16x16`): small, wide ears, verdant skin, crude knife.
-- Chort (`--faction monsters --name chort_idle`, `--size 16x28`): stocky horned beast, crimson and ember.
-- Demon boss (`--faction monsters --name demon_idle`, `--size 32x36`): much larger than a humanoid, wings or horns inside the canvas, crimson and violet.
-- Golem boss (`--name golem_idle`, `--size 32x36`, `--faction monsters`): wide stone body `#2C2D2C` and `#5A5559`, gold `#B59465` cracks, small bone teeth. Not a human silhouette.
+- Skeleton (`--faction shared --name undead_idle`, ingest `--size 32x32`): thin skull and ribs, bone ramp only, eye is one `void` pixel. Short canvas.
+- Goblin (`--faction monsters --name goblin_idle`, `--size 32x32`): small, wide ears, verdant skin, crude knife.
+- Chort (`--faction monsters --name chort_idle`, `--size 32x48`): stocky horned beast, crimson and ember.
+- Demon boss (`--faction monsters --name demon_idle`, `--size 64x64`): much larger than a humanoid, wings or horns inside the canvas, crimson and violet.
+- Golem boss (`--name golem_idle`, `--size 64x64`, `--faction monsters`): wide stone body `#2C2D2C` and `#5A5559`, gold `#B59465` cracks, small bone teeth. Not a human silhouette.
 
 ## Unit, four run frames
 
@@ -97,7 +97,7 @@ One frame only. The same {FACTION} {ROLE}, three-quarter view facing right, orth
 
 ## Floor tile
 
-Full-bleed. Ingest with `--key none --kind tiles --size 16x16 --anchor center`. Do not pass `--outline`.
+Full-bleed. Ingest with `--key none --kind tiles --size 32x32 --anchor center`. Do not pass `--outline`. The default tile canvas is already 32×32.
 
 ```
 {PREFIX}
@@ -111,12 +111,12 @@ Motifs: `violet dungeon flagstones #3B2C37 and #191A32`, `cracked stone with one
 
 ## Wall or prop
 
-Props may be transparent. Walls that autotile must be full-bleed 16×16 with `--key none`.
+Props may be transparent. Walls that autotile must be full-bleed 32×32 with `--key none`.
 
 ```
 {PREFIX}
 
-One game prop, {SUBJECT}, three-quarter view, facing right, orthographic, sitting with its base at the bottom of the frame. It will be reduced to 16x16 pixels. Pure magenta #FF00FF background. No floor, no shadow. One-pixel near-black outline. Readable silhouette at a glance.
+One game prop, {SUBJECT}, three-quarter view, facing right, orthographic, sitting with its base at the bottom of the frame. It will be reduced to 32x32 pixels. Pure magenta #FF00FF background. No floor, no shadow. One-pixel near-black outline. Readable silhouette at a glance.
 
 Subject detail: {DETAIL}
 ```

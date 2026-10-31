@@ -2,6 +2,10 @@ extends Node2D
 const Art = preload("res://presentation.gd")
 # Living Dungeon. Simulation is tile-based; pixels below are presentation only.
 const GRID := Vector2i(96, 96)
+# 32 world units per cell. New floor art is 32×32 drawn at 1× into this cell;
+# legacy 16×16 CC0 tiles are stretched to the same square. At zoom 1 a
+# 720×1280 portrait shows about 22×40 cells of the 96×96 map. Drawing 32px
+# tiles at 2× (TILE 64) would show about 11×20 cells unless every zoom halved.
 const TILE := 32.0
 const FACTIONS := [Color("#5bbdf1"), Color("#ed6969"), Color("#8fd878")]
 const BIOME_TINT := [Color(0.94, 0.9, 1.04), Color(0.78, 1.08, 0.76), Color(1.1, 0.84, 0.72), Color(0.72, 0.9, 1.14)]
@@ -721,6 +725,7 @@ func _draw() -> void:
             var origin := Vector2(x, y) * TILE
             var mod := _shade(x, y, lights, claims)
             var floor_tex: Texture2D = art.floors[(x * 3 + y * 5) % art.floors.size()]
+            # 32×32 source tiles land 1:1. Legacy 16×16 tiles scale up to the cell.
             draw_texture_rect(floor_tex, Rect2(origin, Vector2(TILE, TILE)), false, mod)
             if cell_is_wall(x, y):
                 var wall_tex: Texture2D = art.wall_texture(x, y, wall_fn)
@@ -814,8 +819,11 @@ func _draw_keep(base: Dictionary, lights: Array, claims: Array) -> void:
     var tex: Texture2D = art.keep_texture(int(base.level), int(base.team))
     var foot := Vector2(base.p) * TILE + Vector2(TILE * 0.5, TILE - 2.0)
     var mod := _shade(int(base.p.x), int(base.p.y), lights, claims)
-    _draw_ground_shadow(foot, float(tex.get_width()) * 1.4)
-    _draw_sprite(tex, foot, mod, false)
+    # Building canvases stay 48×48 / 64×64 / 96×80 and are still drawn at 2×
+    # (3, 4, and 6 cells). A 64×64 boss uses _content_scale and is 1×.
+    var scale := 2.0
+    _draw_ground_shadow(foot, float(tex.get_width()) * scale * 0.7)
+    _draw_sprite(tex, foot, mod, false, scale)
 
 func _draw_portal(ruin: Vector2i, now: int, lights: Array, claims: Array) -> void:
     var frame: Texture2D = art.frame_at(art.portal, now, 160)
@@ -838,10 +846,11 @@ func _draw_monster(m: Dictionary, tween: float, now: int, lights: Array, claims:
     var mod := _shade(int(m.p.x), int(m.p.y), lights, claims)
     if int(m.get("flash_until", 0)) > now:
         mod = Color(1.8, 1.7, 1.6)
-    _draw_ground_shadow(foot, float(tex.get_width()) * 1.5)
+    var scale := _content_scale(tex)
+    _draw_ground_shadow(foot, float(tex.get_width()) * scale * 0.75)
     if face < 0:
         foot.x -= 2.0
-    _draw_sprite(tex, foot, mod, face < 0)
+    _draw_sprite(tex, foot, mod, face < 0, scale)
 
 func _draw_unit(f: Dictionary, tween: float, now: int, lights: Array, claims: Array) -> void:
     var moving: bool = f.p != f.old
@@ -866,10 +875,11 @@ func _draw_unit(f: Dictionary, tween: float, now: int, lights: Array, claims: Ar
     var mod := _shade(int(f.p.x), int(f.p.y), lights, claims)
     if int(hit_flash.get(id, 0)) > now:
         mod = Color(1.85, 1.75, 1.6)
-    _draw_ground_shadow(foot, float(tex.get_width()) * 1.6)
-    _draw_sprite(tex, foot, mod, face < 0)
+    var scale := _content_scale(tex)
+    _draw_ground_shadow(foot, float(tex.get_width()) * scale * 0.8)
+    _draw_sprite(tex, foot, mod, face < 0, scale)
     if int(f.hp) < 5:
-        var bar := foot + Vector2(-12, -float(tex.get_height()) * 2.0 - 6.0)
+        var bar := foot + Vector2(-12, -float(tex.get_height()) * scale - 6.0)
         draw_rect(Rect2(bar, Vector2(24, 3)), Color("#3a1818"))
         draw_rect(Rect2(bar, Vector2(24.0 * float(f.hp) / 5.0, 3)), Color("#b6e08a"))
     if f.id == selected and art.select_ring:
@@ -918,11 +928,25 @@ func _draw_light_pools(lights: Array) -> void:
         color.a *= 0.14
         draw_texture_rect(art.glow, Rect2(center - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)), false, color)
 
-func _draw_sprite(tex: Texture2D, foot: Vector2, mod: Color, flip: bool) -> void:
+func _content_scale(tex: Texture2D) -> float:
+    # CC0 placeholders are the old half-density canvases (16×N, and the
+    # 32×36 demon). They are drawn at 2× so a 16px sprite still fills one
+    # cell. New AI canvases are 1 texel per world unit: 32×32, 32×48, ~64×64.
+    var w := tex.get_width()
+    var h := tex.get_height()
+    if w == 32 and h == 36:
+        return 2.0
+    if w >= 32 and h >= 32:
+        return 1.0
+    return 2.0
+
+
+func _draw_sprite(tex: Texture2D, foot: Vector2, mod: Color, flip: bool, scale: float = -1.0) -> void:
     if tex == null:
         return
-    var w := float(tex.get_width()) * 2.0
-    var h := float(tex.get_height()) * 2.0
+    var draw_scale := scale if scale > 0.0 else _content_scale(tex)
+    var w := float(tex.get_width()) * draw_scale
+    var h := float(tex.get_height()) * draw_scale
     var origin := Vector2(foot.x - w * 0.5, foot.y - h)
     if flip:
         draw_set_transform(Vector2(origin.x + w, origin.y), 0.0, Vector2(-1, 1))

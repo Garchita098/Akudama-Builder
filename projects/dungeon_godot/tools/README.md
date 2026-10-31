@@ -6,7 +6,7 @@ Godot **4.4.1** matches `project.godot` and the `Build Living Dungeon Godot APK`
 
 ## Original AI art loop
 
-The style rules (palette, 16×28 unit canvas, 3/4 view on the orthogonal grid, 1px outline) live in `art/STYLE_BIBLE.md`. Paste a template from `tools/prompt_templates.md` into the image generator. Ask it for a PNG on flat magenta `#FF00FF`, with no floor and no cast shadow.
+The style rules (palette, 32×48 unit canvas, 32×32 tiles, 3/4 view on the orthogonal grid, 1px outline) live in `art/STYLE_BIBLE.md`. Paste a template from `tools/prompt_templates.md` into the image generator. Ask it for a PNG on flat magenta `#FF00FF`, with no floor and no cast shadow.
 
 ```bash
 cd projects/dungeon_godot
@@ -19,7 +19,6 @@ python3 tools/ingest_ai.py ingest \
   --kind units \
   --faction azure \
   --name warrior_idle \
-  --size 16x28 \
   --anchor feet \
   --outline \
   --preview previews/azure_warrior_idle_contact.png
@@ -45,7 +44,7 @@ python3 tools/ingest_ai.py ingest \
   --input ~/gen/props.png \
   --kind tiles \
   --name prop \
-  --size 16x16 \
+  --size 32x32 \
   --anchor feet \
   --outline
 
@@ -56,15 +55,17 @@ python3 tools/ingest_ai.py ingest \
   --grid 1024x1024 \
   --separate grid \
   --key none \
-  --size 16x16
+  --size 32x32
 
 # Pipeline check, including the committed synthetic sheet
 python3 tools/ingest_ai.py self-test
 ```
 
-`ingest` keys `#FF00FF` within `--tolerance` (default 40). If that color is not the flat border, it falls back to the border color. Edge pixels are despilled, alpha is forced to 0 or 255, and the image is mode-pooled onto the estimated pixel grid (or `--pixel-grid N`) instead of filtered. Output PNGs get the same Godot 4.4 `.import` sidecar as `assets.py`.
+`ingest` keys `#FF00FF` within `--tolerance` (default 40). If that color is not the flat border, it falls back to the border color. Edge pixels are despilled, alpha is forced to 0 or 255, and the image is mode-pooled onto a detected pixel grid when that grid is plausible. A cell larger than about 1/8 of the figure's shorter side is rejected (AI sheets do not have a clean lattice; a 63px "pixel" collapses a knight to a 2×5 blob). The fallback mode-pools straight to the canvas. `--pixel-grid 1` means there is no grid. `--pixel-grid N` with N > 1 forces that cell size. Quantizing uses CIELAB distance against `art/style/palette.png`, so gold `#B59465` / `#634C2E` stays gold instead of snapping to orange. `--ramps auto` limits the match to the ramps the dominant colors use. A despeckle pass then removes isolated 1px noise and small islands on an unused ramp, and keeps the 1px outline, 1px gold trim, and 1px same-ramp speculars. Output PNGs get the same Godot 4.4 `.import` sidecar as `assets.py`.
 
-The synthetic fixture is `tools/fixtures/ai_ingest_sheet.png`. `self-test` rebuilds it in memory and fails if the file drifts. `art/style/example_contact.png` is that fixture after ingest: two figures, outlined, feet on the bottom of a 16×28 canvas.
+The default unit canvas is 32×48, feet on the bottom row. Tiles default to 32×32. Bosses are about 64×64 and small creatures about 32×32 (`art/STYLE_BIBLE.md`).
+
+The synthetic fixture is `tools/fixtures/ai_ingest_sheet.png`. `self-test` rebuilds it in memory and fails if the file drifts. `art/style/example_contact.png` is that fixture after ingest: two figures, outlined, feet on the bottom of a 16×28 canvas. That fixture's 8px cells are larger than 1/8 of its 32px-wide figure, so the mode-pool check passes `--pixel-grid 8`. Live AI sheets use the automatic fallback.
 
 ## Iteration loop
 
