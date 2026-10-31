@@ -2,12 +2,68 @@ name: Build Living Dungeon Godot APK
 on:
   workflow_dispatch:
   push:
+    branches: [main]
+    paths:
+      - "projects/dungeon_godot/**"
+      - ".github/workflows/godot-dungeon.yml"
+  pull_request:
     paths:
       - "projects/dungeon_godot/**"
       - ".github/workflows/godot-dungeon.yml"
 permissions:
   contents: read
 jobs:
+  import-and-screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install virtual display libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb unzip ca-certificates curl python3 \
+            libfontconfig1 libx11-6 libxcursor1 libxext6 libxfixes3 libxi6 \
+            libxinerama1 libxrandr2 libxrender1 libgl1 libgl1-mesa-dri
+      - name: Install Godot 4.4.1
+        run: projects/dungeon_godot/tools/screenshot.sh --install-godot
+      - name: Asset pipeline self-test
+        run: python3 projects/dungeon_godot/tools/assets.py self-test
+      - name: Import and validate project
+        run: |
+          set -o pipefail
+          GODOT_BIN="projects/dungeon_godot/.cache/godot/Godot_v4.4.1-stable_linux.x86_64"
+          set +e
+          "$GODOT_BIN" --headless --path projects/dungeon_godot --editor --quit 2>&1 | tee godot-import.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" godot-import.log; then
+            exit 1
+          fi
+          exit "$status"
+      - name: Capture screenshots
+        run: projects/dungeon_godot/tools/screenshot.sh --preset all --seconds 3 --seed 12047
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: Living-Dungeon-Screenshots
+          path: projects/dungeon_godot/screenshots/*.png
+          if-no-files-found: error
+      - name: Upload capture log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Living-Dungeon-Screenshot-Log
+          path: projects/dungeon_godot/screenshots/capture.log
+          if-no-files-found: ignore
+      - name: Upload import diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Living-Dungeon-Screenshot-Import-Log
+          path: godot-import.log
+          if-no-files-found: ignore
+
   export-android:
     runs-on: ubuntu-latest
     timeout-minutes: 35
