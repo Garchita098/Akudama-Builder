@@ -4,11 +4,11 @@
 The generator is expected to return a large PNG (or any format ffmpeg can
 read) of painterly pseudo-pixel art on a flat chroma background, usually
 pure magenta #FF00FF. This tool keys that background out, splits a sheet
-into objects, mode-pools down to the real pixel grid, quantizes to
-art/style/palette.png, and writes the Godot art tree plus a contact sheet.
+into objects, mode-pools down to a real pixel grid when one is plausible,
+quantizes to art/style/palette.png in CIELAB, drops isolated specks, and
+writes the Godot art tree plus a contact sheet.
 
 No third-party packages. PNG I/O and Godot .import files come from assets.py.
-Gameplay code is not modified.
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ PREVIEWS = PROJECT / "previews"
 KINDS = ("tiles", "units", "buildings", "fx", "ui")
 
 DEFAULT_SIZE = {
-    "tiles": (16, 16),
-    "units": (16, 28),
+    "tiles": (32, 32),
+    "units": (32, 48),
     "buildings": (48, 48),
     "fx": (16, 16),
     "ui": (32, 32),
@@ -433,13 +433,114 @@ def _block_intra(image: Image, period: int, phase_x: int, phase_y: int) -> float
     return sum(variances) / len(variances)
 
 
+# A real texel is nearly constant. The synthetic fixture's jitter stays under
+# ~100; a painterly AI figure scores in the thousands for every period.
+_FLAT_CELL_INTRA = 800.0
+
+# Master-palette ramps. A color may sit on more than one ramp (flame is both
+# the hot gold glint and the fire core). Names match art/style/palette.gpl.
+RAMP_GROUPS: dict[str, tuple[tuple[int, int, int], ...]] = {
+    "outline": ((4, 4, 12), (9, 10, 24)),
+    "dungeon": ((59, 44, 55), (44, 45, 44), (90, 85, 89), (135, 122, 129), (190, 177, 184), (101, 67, 79)),
+    "azure": ((25, 26, 50), (36, 44, 89), (60, 75, 140), (71, 94, 161), (122, 154, 213), (144, 163, 208)),
+    "violet": ((26, 15, 33), (44, 14, 74), (81, 16, 141), (177, 83, 231)),
+    "cyan": ((17, 46, 57), (15, 102, 115), (75, 215, 222), (107, 237, 241)),
+    "crimson": ((47, 15, 14), (90, 36, 29), (144, 55, 32), (200, 92, 36)),
+    "fire": ((164, 70, 36), (213, 107, 30), (255, 206, 107), (255, 247, 191)),
+    "gold": ((99, 76, 46), (181, 148, 101), (255, 206, 107)),
+    "verdant": ((27, 41, 24), (64, 91, 34), (109, 140, 54), (177, 199, 129)),
+    "bone": ((87, 75, 68), (159, 146, 129), (216, 214, 193), (250, 250, 235)),
+}
+GOLD_COLORS = {(181, 148, 101), (99, 76, 46)}
+OUTLINE_COLORS = {(4, 4, 12), (9, 10, 24)}
+_COLOR_RAMPS: dict[tuple[int, int, int], set[str]] = {}
+for _ramp_name, _ramp_colors in RAMP_GROUPS.items():
+    for _ramp_color in _ramp_colors:
+        _COLOR_RAMPS.setdefault(_ramp_color, set()).add(_ramp_name)
+
+_LAB_CACHE: dict[tuple[int, int, int], tuple[float, float, float]] = {}
+
+
+def _max_plausible_cell(width: int, height: int) -> int:
+    """Largest cell that can still be one texel of this figure.
+
+    AI sheets have no clean lattice. The autocorrelation locks onto a period
+    that is a slice of the body (63px on a ~190px knight collapsed to 2×5).
+    A cell larger than about 1/8 of the shorter side is that failure.
+    """
+    return max(2, min(width, height) // 8)
+
+
+def _srgb_channel_to_linear(channel: int) -> float:
+    value = channel / 255.0
+    if value <= 0.04045:
+        return value / 12.92
+    return ((value + 0.055) / 1.055) ** 2.4
+
+
+def _cielab(color: tuple[int, int, int]) -> tuple[float, float, float]:
+    """CIELAB (D65). Euclidean distance here keeps gold off the orange ramps."""
+    cached = _LAB_CACHE.get(color)
+    if cached is not None:
+        return cached
+    red = _srgb_channel_to_linear(color[0])
+    green = _srgb_channel_to_linear(color[1])
+    blue = _srgb_channel_to_linear(color[2])
+    x = red * 0.4124564 + green * 0.3575761 + blue * 0.1804375
+    y = red * 0.2126729 + green * 0.7151522 + blue * 0.0721750
+    z = red * 0.0193339 + green * 0.1191920 + blue * 0.9503041
+
+    def pivot(channel: float) -> float:
+        if channel > 0.008856:
+            return channel ** (1.0 / 3.0)
+        return 7.787 * channel + 16.0 / 116.0
+
+    fx, fy, fz = pivot(x / 0.95047), pivot(y / 1.0), pivot(z / 1.08883)
+    lab = (116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz))
+    _LAB_CACHE[color] = lab
+    return lab
+
+
+def _lab_dist2(left: tuple[float, float, float], right: tuple[float, float, float]) -> float:
+    return (left[0] - right[0]) ** 2 + (left[1] - right[1]) ** 2 + (left[2] - right[2]) ** 2
+
+
+def nearest_palette_color(
+    color: tuple[int, int, int],
+    palette: list[tuple[int, int, int]],
+    labs: list[tuple[float, float, float]] | None = None,
+) -> tuple[int, int, int]:
+    sample = _cielab(color)
+    if labs is None:
+        labs = [_cielab(entry) for entry in palette]
+    best = 0
+    best_distance = _lab_dist2(sample, labs[0])
+    for index, entry in enumerate(labs):
+        distance = _lab_dist2(sample, entry)
+        if distance < best_distance:
+            best_distance = distance
+            best = index
+    return palette[best]
+
+
 def estimate_pixel_grid(image: Image, forced: int = 0) -> tuple[int, int, int] | None:
-    """Return (period, phase_x, phase_y) when a square pixel grid is visible."""
+    """Return (period, phase_x, phase_y) when a square pixel grid is visible.
+
+    ``forced == 1`` means there is no grid: the caller mode-pools straight to
+    the canvas. ``forced > 1`` uses that cell size. ``forced == 0`` estimates,
+    then rejects a period that is larger than 1/8 of the figure or whose cells
+    are not flat.
+    """
     width, height, _pixels = image
+    if forced < 0:
+        raise SystemExit("--pixel-grid must be >= 0")
+    if forced == 1:
+        return None
     if forced > 1:
         if forced > min(width, height) // 2:
             return None
         return forced, 0, 0
+    max_cell = _max_plausible_cell(width, height)
     phases: dict[int, list[int]] = {}
     for axis, signal in (("x", _diff_signal(image, "x")), ("y", _diff_signal(image, "y"))):
         for period, phase, _gain in _period_candidates(signal):
@@ -451,24 +552,18 @@ def estimate_pixel_grid(image: Image, forced: int = 0) -> tuple[int, int, int] |
             half = period // 2
             phases.setdefault(half, [phase_x % half, phase_y % half])
         double = period * 2
-        if 2 <= double <= min(width, height) // 3:
+        if 2 <= double <= max_cell:
             phases.setdefault(double, [phase_x, phase_y])
     scored: list[tuple[int, int, int, float]] = []
     for period, (phase_x, phase_y) in phases.items():
-        if period < 2 or period > min(width, height) // 3:
+        if period < 2 or period > max_cell:
             continue
         intra = _block_intra(image, period, phase_x, phase_y)
         scored.append((period, phase_x, phase_y, intra))
-    if not scored:
+    flat = [item for item in scored if item[3] <= _FLAT_CELL_INTRA]
+    if not flat:
         return None
-    floor = min(item[3] for item in scored)
-    limit = max(120.0, floor * 8.0 + 40.0)
-    accepted = [item for item in scored if item[3] <= limit]
-    if not accepted:
-        return None
-    period, phase_x, phase_y, intra = max(accepted, key=lambda item: item[0])
-    if intra > 800.0 and intra > floor * 12.0:
-        return None
+    period, phase_x, phase_y, _intra = max(flat, key=lambda item: item[0])
     return period, phase_x, phase_y
 
 
@@ -565,7 +660,7 @@ def downscale_content(image: Image, max_w: int, max_h: int, forced_grid: int) ->
         raise ValueError("frame has no opaque pixels")
     cropped = _crop_box(image, box)
     grid = estimate_pixel_grid(cropped, forced_grid)
-    note = "no pixel grid; mode-pool to the canvas"
+    note = "no plausible pixel grid; mode-pool to the canvas"
     native = cropped
     if grid is not None:
         period, phase_x, phase_y = grid
@@ -825,6 +920,7 @@ def _read_hex(path: Path) -> list[tuple[int, int, int]]:
 
 def floyd_steinberg(image: Image, palette: list[tuple[int, int, int]]) -> Image:
     width, height, pixels = image
+    labs = [_cielab(entry) for entry in palette]
     work = [[0.0, 0.0, 0.0, 0.0] for _ in range(width * height)]
     for i in range(width * height):
         src = i * 4
@@ -843,10 +939,7 @@ def floyd_steinberg(image: Image, palette: list[tuple[int, int, int]]) -> Image:
                 int(min(255, max(0, round(work[i][1])))),
                 int(min(255, max(0, round(work[i][2])))),
             )
-            chosen = min(
-                palette,
-                key=lambda entry: (entry[0] - sample[0]) ** 2 + (entry[1] - sample[1]) ** 2 + (entry[2] - sample[2]) ** 2,
-            )
+            chosen = nearest_palette_color(sample, palette, labs)
             out[i * 4 : i * 4 + 4] = bytes((chosen[0], chosen[1], chosen[2], 255))
             error = [sample[channel] - chosen[channel] for channel in range(3)]
             for dx, dy, weight in ((1, 0, 7), (-1, 1, 3), (0, 1, 5), (1, 1, 1)):
@@ -861,6 +954,244 @@ def floyd_steinberg(image: Image, palette: list[tuple[int, int, int]]) -> Image:
     return width, height, out
 
 
+def _apply_palette_lab(image: Image, palette: list[tuple[int, int, int]]) -> Image:
+    width, height, pixels = image
+    out = bytearray(pixels)
+    labs = [_cielab(entry) for entry in palette]
+    cache: dict[tuple[int, int, int], tuple[int, int, int]] = {}
+    for i in range(0, len(out), 4):
+        if out[i + 3] == 0:
+            out[i : i + 4] = b"\x00\x00\x00\x00"
+            continue
+        color = (out[i], out[i + 1], out[i + 2])
+        mapped = cache.get(color)
+        if mapped is None:
+            mapped = nearest_palette_color(color, palette, labs)
+            cache[color] = mapped
+        out[i : i + 3] = bytes(mapped)
+    return width, height, out
+
+
+def select_palette(
+    image: Image,
+    palette: list[tuple[int, int, int]],
+    mode: str,
+) -> list[tuple[int, int, int]]:
+    """Restrict ``palette`` to ramps. ``all`` keeps every color.
+
+    ``auto`` opens the ramp of each palette color that covers at least 1.5% of
+    the figure (and at least 3 pixels), plus outline and any real gold trim.
+    A comma-separated list opens those ramps by name.
+    """
+    if not palette or mode in ("", "all"):
+        return palette
+    cleaned = mode.strip().lower()
+    known = {color for colors in RAMP_GROUPS.values() for color in colors}
+    if cleaned != "auto":
+        names = [part.strip() for part in cleaned.split(",") if part.strip()]
+        unknown = [name for name in names if name not in RAMP_GROUPS]
+        if unknown:
+            known_names = ", ".join(RAMP_GROUPS)
+            raise SystemExit(f"unknown ramp {unknown[0]!r}; expected {known_names}, auto, or all")
+        chosen: list[tuple[int, int, int]] = []
+        seen: set[tuple[int, int, int]] = set()
+        for name in names:
+            for color in RAMP_GROUPS[name]:
+                if color in palette and color not in seen:
+                    chosen.append(color)
+                    seen.add(color)
+        if not chosen:
+            raise SystemExit("none of the requested ramps are in the palette")
+        return chosen
+
+    if sum(1 for color in palette if color in known) < 8:
+        return palette
+    counts: Counter[tuple[int, int, int]] = Counter()
+    _width, _height, pixels = image
+    opaque = 0
+    labs = [_cielab(entry) for entry in palette]
+    cache: dict[tuple[int, int, int], tuple[int, int, int]] = {}
+    for i in range(0, len(pixels), 4):
+        if pixels[i + 3] == 0:
+            continue
+        opaque += 1
+        color = (pixels[i], pixels[i + 1], pixels[i + 2])
+        mapped = cache.get(color)
+        if mapped is None:
+            mapped = nearest_palette_color(color, palette, labs)
+            cache[color] = mapped
+        counts[mapped] += 1
+    if opaque == 0:
+        return palette
+    threshold = max(3, int(round(opaque * 0.015)))
+    opened = {"outline"}
+    for color, count in counts.items():
+        if count >= threshold or (color in GOLD_COLORS and count >= 3):
+            opened.update(_COLOR_RAMPS.get(color, ()))
+    if counts and opened == {"outline"}:
+        opened.update(_COLOR_RAMPS.get(counts.most_common(1)[0][0], ()))
+    chosen = []
+    seen = set()
+    for name in sorted(opened):
+        for color in RAMP_GROUPS.get(name, ()):
+            if color in palette and color not in seen:
+                chosen.append(color)
+                seen.add(color)
+    return chosen or palette
+
+
+def _majority(colors: list[tuple[int, int, int]]) -> tuple[int, int, int]:
+    counts = Counter(colors)
+    return max(colors, key=lambda color: (counts[color], -colors.index(color)))
+
+
+def _established_ramps(pixels: bytearray | bytes, width: int, height: int) -> set[str]:
+    """Ramps that actually cover this sprite, plus outline.
+
+    A handful of violet or rust pixels on blue steel is not a material. Gold
+    trim is allowed through ``GOLD_COLORS`` even when the ramp is small.
+    """
+    counts: Counter[str] = Counter()
+    opaque = 0
+    for y in range(height):
+        for x in range(width):
+            i = (y * width + x) * 4
+            if pixels[i + 3] == 0:
+                continue
+            opaque += 1
+            color = (pixels[i], pixels[i + 1], pixels[i + 2])
+            for ramp in _COLOR_RAMPS.get(color, ()):
+                counts[ramp] += 1
+    if opaque == 0:
+        return set(RAMP_GROUPS)
+    threshold = max(4, int(round(opaque * 0.08)))
+    established = {"outline"}
+    for ramp, count in counts.items():
+        if count >= threshold:
+            established.add(ramp)
+    return established
+
+
+def _ramp_allowed(color: tuple[int, int, int], established: set[str]) -> bool:
+    if color in OUTLINE_COLORS or color in GOLD_COLORS:
+        return True
+    ramps = _COLOR_RAMPS.get(color)
+    if not ramps:
+        return True
+    return bool(ramps & established)
+
+
+def _scrub_foreign(pixels: bytearray, width: int, height: int) -> int:
+    """Repaint islands whose ramp is not actually used by the sprite.
+
+    Reads neighbours from the previous pass so a rust-colored belt shrinks
+    from its gold and steel edges instead of surviving as a solid run.
+    """
+    established = _established_ramps(pixels, width, height)
+    replaced = 0
+    current = pixels
+    for _ in range(8):
+        nxt = bytearray(current)
+        changed = 0
+        for y in range(height):
+            for x in range(width):
+                i = (y * width + x) * 4
+                if current[i + 3] == 0:
+                    continue
+                color = (current[i], current[i + 1], current[i + 2])
+                if _ramp_allowed(color, established):
+                    continue
+                neighbors: list[tuple[int, int, int]] = []
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        if dx == 0 and dy == 0:
+                            continue
+                        nx, ny = x + dx, y + dy
+                        if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                            continue
+                        j = (ny * width + nx) * 4
+                        if current[j + 3] == 0:
+                            continue
+                        neighbor = (current[j], current[j + 1], current[j + 2])
+                        if _ramp_allowed(neighbor, established):
+                            neighbors.append(neighbor)
+                if not neighbors:
+                    continue
+                nxt[i : i + 3] = bytes(_majority(neighbors))
+                changed += 1
+        current = nxt
+        replaced += changed
+        if changed == 0:
+            break
+    if current is not pixels:
+        pixels[:] = current
+    return replaced
+
+
+def despeckle(image: Image) -> tuple[Image, int]:
+    """Replace isolated 1px colors with the majority neighbour.
+
+    A pixel is isolated when none of its eight neighbours share its color.
+    The 1px outline (void / abyss, or a dark rim on transparency), 1px gold
+    trim, and 1px speculars that are a lighter step of the neighbour ramp
+    stay put. A second pass drops small islands on a ramp the sprite does
+    not actually use (violet specks and rust on blue steel) without eating
+    a real violet robe or a gold buckle.
+    """
+    width, height, pixels = image
+    out = bytearray(pixels)
+    replaced = 0
+    for y in range(height):
+        for x in range(width):
+            i = (y * width + x) * 4
+            if pixels[i + 3] == 0:
+                continue
+            color = (pixels[i], pixels[i + 1], pixels[i + 2])
+            neighbors: list[tuple[int, int, int]] = []
+            touches_clear = False
+            same = False
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    nx, ny = x + dx, y + dy
+                    if nx < 0 or ny < 0 or nx >= width or ny >= height:
+                        touches_clear = True
+                        continue
+                    j = (ny * width + nx) * 4
+                    if pixels[j + 3] == 0:
+                        touches_clear = True
+                        continue
+                    neighbor = (pixels[j], pixels[j + 1], pixels[j + 2])
+                    neighbors.append(neighbor)
+                    if neighbor == color:
+                        same = True
+            if same or not neighbors:
+                continue
+            if _keep_isolated(color, neighbors, touches_clear):
+                continue
+            majority = _majority(neighbors)
+            out[i : i + 3] = bytes(majority)
+            replaced += 1
+    replaced += _scrub_foreign(out, width, height)
+    return (width, height, out), replaced
+
+
+def _keep_isolated(
+    color: tuple[int, int, int],
+    neighbors: list[tuple[int, int, int]],
+    touches_clear: bool,
+) -> bool:
+    if color in OUTLINE_COLORS or color in GOLD_COLORS:
+        return True
+    majority = _majority(neighbors)
+    if touches_clear and _cielab(color)[0] + 8.0 < _cielab(majority)[0]:
+        return True
+    if not (_COLOR_RAMPS.get(color, set()) & _COLOR_RAMPS.get(majority, set())):
+        return False
+    return _cielab(color)[0] >= _cielab(majority)[0] + 8.0
+
+
 def quantize(image: Image, palette: list[tuple[int, int, int]] | None, dither: str) -> Image:
     if not palette:
         _zero_transparent(image)
@@ -868,7 +1199,7 @@ def quantize(image: Image, palette: list[tuple[int, int, int]] | None, dither: s
     if dither == "floyd":
         image = floyd_steinberg(image, palette)
     else:
-        image = ASSETS.apply_palette(image, palette)
+        image = _apply_palette_lab(image, palette)
     _zero_transparent(image)
     return image
 
@@ -984,17 +1315,26 @@ def process(args: argparse.Namespace) -> list[Path]:
     stem = args.name or source.stem
     names = _output_names(stem, len(frames), args.names, args.force_index, args.index_width)
     destination = _destination(art_root, kind, faction)
+    ramp_mode = getattr(args, "ramps", "all") or "all"
     finished: list[Image] = []
     written: list[Path] = []
     for name, frame in zip(names, frames):
         reduced, note = downscale_content(frame, max_w, max_h, args.pixel_grid)
         print(f"  {name}: {note}")
+        active = palette
         if palette is not None:
-            reduced = quantize(reduced, palette, args.dither)
+            active = select_palette(reduced, palette, ramp_mode)
+            if len(active) != len(palette):
+                print(f"  {name}: ramps {ramp_mode} -> {len(active)} palette colors")
+            reduced = quantize(reduced, active, args.dither)
+            if args.dither != "floyd":
+                reduced, speckles = despeckle(reduced)
+                if speckles:
+                    print(f"  {name}: despeckled {speckles} isolated pixel(s)")
         if args.outline:
             reduced = add_outline(reduced, outline_color)
             if palette is not None and args.dither != "floyd":
-                reduced = quantize(reduced, palette, "none")
+                reduced = quantize(reduced, active if active is not None else palette, "none")
         placed = anchor(reduced, canvas[0], canvas[1], anchor_mode, args.foot_pad)
         _zero_transparent(placed)
         target = destination / f"{name}.png"
@@ -1129,7 +1469,10 @@ def command_self_test(_args: argparse.Namespace) -> None:
                 spacing=0,
                 min_area=24,
                 connectivity=8,
-                pixel_grid=0,
+                # The fixture is a 32px-wide figure on an 8px lattice. That cell
+                # is larger than 1/8 of the figure, so auto-estimate rejects it.
+                # The mode-pool check below forces the lattice the fixture was built on.
+                pixel_grid=8,
                 palette=str(DEFAULT_PALETTE),
                 colors=0,
                 dither="none",
@@ -1194,7 +1537,7 @@ def command_self_test(_args: argparse.Namespace) -> None:
             gp[i : i + 4] = bytes((0, 170, 0, 255))
         for y in range(12, 28):
             for x in range(16, 32):
-                gp[(y * 48 + x) * 4 : (y * 48 + x) * 4 + 4] = bytes((210, 100, 40, 255))
+                gp[(y * 48 + x) * 4 : (y * 48 + x) * 4 + 4] = bytes((220, 120, 40, 255))
         green_path = root / "green.png"
         ASSETS.write_png(green_path, green)
         fallback_art = project / "fallback"
@@ -1290,7 +1633,197 @@ def command_self_test(_args: argparse.Namespace) -> None:
         right = ASSETS.read_png(project / "gridart" / "tiles" / "cell_1.png")
         if tuple(left[2][0:3]) != (71, 94, 161) or tuple(right[2][0:3]) != (200, 92, 36):
             raise SystemExit("grid slice did not keep the two cell colors")
+    _extra_self_tests(palette)
     print("ai ingest self-test passed")
+
+
+def _put(image: Image, x: int, y: int, color: tuple[int, int, int], alpha: int = 255) -> None:
+    width = image[0]
+    image[2][(y * width + x) * 4 : (y * width + x) * 4 + 4] = bytes((color[0], color[1], color[2], alpha))
+
+
+def _at(image: Image, x: int, y: int) -> tuple[int, int, int, int]:
+    width = image[0]
+    i = (y * width + x) * 4
+    return tuple(image[2][i : i + 4])  # type: ignore[return-value]
+
+
+def _fill(width: int, height: int, color: tuple[int, int, int]) -> Image:
+    image = _blank(width, height)
+    paint = bytes((color[0], color[1], color[2], 255))
+    pixels = image[2]
+    for i in range(0, len(pixels), 4):
+        pixels[i : i + 4] = paint
+    return image
+
+
+def _clean_grid_body(cell: int = 8, cols: int = 10, rows: int = 12) -> Image:
+    image = _blank(cell * cols, cell * rows)
+    colors = ((71, 94, 161), (122, 154, 213), (181, 148, 101))
+    for row in range(rows):
+        for col in range(cols):
+            color = colors[(row + col) % len(colors)]
+            for by in range(cell):
+                for bx in range(cell):
+                    jitter = ((bx + by + row) % 5) - 2
+                    _put(
+                        image,
+                        col * cell + bx,
+                        row * cell + by,
+                        (
+                            max(0, min(255, color[0] + jitter)),
+                            max(0, min(255, color[1] + jitter // 2)),
+                            color[2],
+                        ),
+                    )
+    return image
+
+
+def _false_period_body() -> Image:
+    """Gradient figure with a bright column every 60px. That period is not a texel."""
+    width, height = 180, 260
+    image = _blank(width, height)
+    for y in range(height):
+        for x in range(width):
+            if x % 60 == 0:
+                color = (250, 250, 250)
+            else:
+                color = (30 + (x * 3) % 80, 40 + (y % 37), 110 + (x % 50))
+            _put(image, x, y, color)
+    return image
+
+
+def _extra_self_tests(palette: list[tuple[int, int, int]]) -> None:
+    if DEFAULT_SIZE["units"] != (32, 48) or DEFAULT_SIZE["tiles"] != (32, 32):
+        raise SystemExit(f"default canvases drifted: {DEFAULT_SIZE}")
+    azure = (71, 94, 161)
+    ice = (144, 163, 208)
+    violet = (177, 83, 231)
+    gold = (181, 148, 101)
+    gold_dark = (99, 76, 46)
+    void = (4, 4, 12)
+    cyan = (15, 102, 115)
+    bone = (159, 146, 129)
+    fire = (213, 107, 30)
+    ember = (164, 70, 36)
+
+    gold_samples = {
+        (181, 148, 101): gold,
+        (186, 142, 64): gold,
+        (170, 130, 60): gold,
+        (160, 120, 50): gold,
+        (150, 110, 40): gold,
+        (99, 76, 46): gold_dark,
+        (80, 60, 30): gold_dark,
+        (130, 100, 50): gold_dark,
+    }
+    for sample, expected in gold_samples.items():
+        got = nearest_palette_color(sample, palette)
+        if got != expected:
+            raise SystemExit(f"CIELAB mapped {sample} to {got}, expected gold {expected}")
+    warm = {
+        (213, 107, 30): fire,
+        (220, 120, 40): fire,
+        (200, 90, 40): (200, 92, 36),
+        (180, 70, 30): ember,
+        (20, 80, 140): (60, 75, 140),
+    }
+    for sample, expected in warm.items():
+        got = nearest_palette_color(sample, palette)
+        if got != expected:
+            raise SystemExit(f"CIELAB mapped {sample} to {got}, expected {expected}")
+
+    speck = _fill(7, 7, azure)
+    _put(speck, 3, 3, violet)
+    cleaned, count = despeckle(speck)
+    if _at(cleaned, 3, 3)[:3] != azure or count != 1:
+        raise SystemExit("despeckle left a violet speck on azure steel")
+    glint = _fill(7, 7, azure)
+    _put(glint, 3, 3, ice)
+    kept, count = despeckle(glint)
+    if _at(kept, 3, 3)[:3] != ice or count != 0:
+        raise SystemExit("despeckle ate the 1px ice specular")
+    buckle = _fill(7, 7, azure)
+    _put(buckle, 3, 3, gold)
+    trimmed, _count = despeckle(buckle)
+    if _at(trimmed, 3, 3)[:3] != gold:
+        raise SystemExit("despeckle ate the 1px gold trim")
+    _put(buckle, 3, 3, gold_dark)
+    trimmed, _count = despeckle(buckle)
+    if _at(trimmed, 3, 3)[:3] != gold_dark:
+        raise SystemExit("despeckle ate gold_dark trim")
+    eye = _fill(7, 7, bone)
+    _put(eye, 3, 3, void)
+    eyed, _count = despeckle(eye)
+    if _at(eyed, 3, 3)[:3] != void:
+        raise SystemExit("despeckle ate the 1px void eye")
+    cyan_speck = _fill(7, 7, azure)
+    _put(cyan_speck, 3, 3, cyan)
+    cleaned, _count = despeckle(cyan_speck)
+    if _at(cleaned, 3, 3)[:3] != azure:
+        raise SystemExit("despeckle left a cyan speck on azure steel")
+    core = _fill(4, 4, azure)
+    outlined = add_outline(core, void)
+    outlined, _count = despeckle(outlined)
+    if _at(outlined, 0, 2)[:3] != void or _at(outlined, 2, 2)[:3] != azure:
+        raise SystemExit("despeckle ate the 1px void outline")
+    belt = _fill(16, 12, azure)
+    for x in range(6, 11):
+        _put(belt, x, 6, (47, 15, 14))
+    belt, belt_count = despeckle(belt)
+    if any(_at(belt, x, 6)[:3] == (47, 15, 14) for x in range(6, 11)) or belt_count < 5:
+        raise SystemExit("rust belt on azure steel survived despeckle")
+    if _at(belt, 1, 1)[:3] != azure:
+        raise SystemExit("foreign-ramp scrub repainted the azure field")
+
+    field = _fill(24, 24, azure)
+    for y in range(4, 8):
+        for x in range(4, 8):
+            _put(field, x, y, (186, 142, 64))
+    _put(field, 20, 20, violet)
+    restricted = select_palette(field, palette, "auto")
+    if gold not in restricted or azure not in restricted:
+        raise SystemExit("auto ramps dropped azure or gold")
+    if violet in restricted or cyan in restricted:
+        raise SystemExit(f"auto ramps kept a noise ramp: violet={violet in restricted} cyan={cyan in restricted}")
+    snapped = despeckle(quantize(field, restricted, "none"))[0]
+    if violet in _palette_colors(snapped) or cyan in _palette_colors(snapped):
+        raise SystemExit("auto-ramp quantize left violet or cyan on the azure figure")
+    if gold not in _palette_colors(snapped):
+        raise SystemExit("auto-ramp quantize lost the gold block")
+    named = select_palette(field, palette, "azure,gold")
+    if violet in named or fire in named:
+        raise SystemExit("explicit ramps included colors outside azure and gold")
+    if gold not in named or azure not in named:
+        raise SystemExit("explicit azure,gold ramps missed a requested color")
+
+    lattice = _clean_grid_body()
+    if _max_plausible_cell(lattice[0], lattice[1]) < 8:
+        raise SystemExit("clean-grid fixture is too small for an 8px cell")
+    found = estimate_pixel_grid(lattice, 0)
+    if found is None or found[0] != 8:
+        raise SystemExit(f"clean 8px lattice estimated as {found}")
+    if estimate_pixel_grid(lattice, 1) is not None:
+        raise SystemExit("--pixel-grid 1 still estimated a lattice")
+    pooled, note = downscale_content(lattice, 32, 48, 1)
+    if not note.startswith("no plausible pixel grid") or pooled[0] < 24:
+        raise SystemExit(f"--pixel-grid 1 did not mode-pool to the canvas ({note}, {pooled[0]}x{pooled[1]})")
+    gridded, grid_note = downscale_content(lattice, 32, 48, 0)
+    if gridded[0] != 10 or "pixel grid 8px" not in grid_note:
+        raise SystemExit(f"auto grid should stay 10px wide, got {grid_note} {gridded[0]}x{gridded[1]}")
+
+    false_grid = _false_period_body()
+    if _max_plausible_cell(false_grid[0], false_grid[1]) >= 60:
+        raise SystemExit("false-period fixture does not make a 60px cell implausible")
+    bogus = estimate_pixel_grid(false_grid, 0)
+    if bogus is not None:
+        raise SystemExit(f"implausible grid was accepted: {bogus}")
+    fallback, fallback_note = downscale_content(false_grid, 30, 46, 0)
+    if fallback[0] < 16 or fallback[1] < 24 or not fallback_note.startswith("no plausible pixel grid"):
+        raise SystemExit(f"false grid collapsed the figure ({fallback_note}, {fallback[0]}x{fallback[1]})")
+    skipped, skipped_note = downscale_content(false_grid, 30, 46, 1)
+    if not skipped_note.startswith("no plausible pixel grid") or (skipped[0], skipped[1]) != (fallback[0], fallback[1]):
+        raise SystemExit("--pixel-grid 1 disagreed with the rejected-grid fallback")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1301,7 +1834,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--kind", required=True, choices=KINDS)
     ingest.add_argument("--faction", default="", help="Required for units: azure, crimson, verdant, shared, monsters")
     ingest.add_argument("--name", default="", help="Output stem. Defaults to the file name.")
-    ingest.add_argument("--size", default="", help="Target pixel size WxH. Defaults from the kind (units 16x28).")
+    ingest.add_argument("--size", default="", help="Target pixel size WxH. Defaults from the kind (units 32x48, tiles 32x32).")
     ingest.add_argument("--canvas", default="", help="Pad size WxH. Defaults to --size.")
     ingest.add_argument("--anchor", default="", help="feet, center, or top. Units and buildings default to feet.")
     ingest.add_argument("--foot-pad", type=int, default=0, help="Pixels between the baseline and the canvas edge.")
@@ -1314,8 +1847,18 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--spacing", type=int, default=0)
     ingest.add_argument("--min-area", type=int, default=24, help="Drop specks smaller than this many source pixels.")
     ingest.add_argument("--connectivity", type=int, default=8, choices=(4, 8))
-    ingest.add_argument("--pixel-grid", type=int, default=0, help="Force the source pixel size. 0 estimates it.")
+    ingest.add_argument(
+        "--pixel-grid",
+        type=int,
+        default=0,
+        help="Source cell size. 0 estimates and rejects a cell larger than 1/8 of the figure. 1 means no grid, mode-pool to the canvas. N>1 forces an N-pixel cell.",
+    )
     ingest.add_argument("--palette", default="", help="PNG, GPL, or HEX palette. Default art/style/palette.png.")
+    ingest.add_argument(
+        "--ramps",
+        default="all",
+        help="Palette ramps: all, auto (ramps used by the figure's dominant colors), or a comma-separated list such as azure,gold.",
+    )
     ingest.add_argument("--colors", type=int, default=0, help="Median-cut to N colors instead of the master palette.")
     ingest.add_argument("--dither", default="none", choices=("none", "floyd"))
     ingest.add_argument("--outline", action="store_true", help="Add a 1px outside outline.")
