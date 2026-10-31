@@ -1,0 +1,1 @@
+# Source packs are sliced into art/. Godot should not import the originals.

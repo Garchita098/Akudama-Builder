@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Slice, resize, and palette-quantize pixel art for Living Dungeon.
 
-Writes a Godot 4.4 art/ tree and .import sidecars. The game still renders
-the encoded placeholders in art_tiles.gd and soldier_sprites.gd; this tool
-does not switch the running scene over to the new files.
+Writes a Godot 4.4 art/ tree and .import sidecars. The running game loads
+those textures. This tool slices and quantizes; it does not change gameplay.
 
 No third-party packages. PNG read/write is implemented here so a plain
 Linux VM and GitHub Actions can run it with python3 only.

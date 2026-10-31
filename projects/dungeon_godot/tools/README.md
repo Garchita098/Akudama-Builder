@@ -1,6 +1,6 @@
 # Living Dungeon graphics tools
 
-Tooling for iterating on Living Dungeon art. The game still draws the encoded placeholders in `art_tiles.gd` and `soldier_sprites.gd`, and buildings are still drawn in `world.gd`. Nothing here changes gameplay.
+Tooling for iterating on Living Dungeon art. The game draws the textures under `art/` (see `CREDITS.md`). `tools/build_visual_art.py` slices the CC0 tileset in `third_party/0x72/` and writes those files. Gameplay and save data are unchanged.
 
 Godot **4.4.1** matches `project.godot` and the `Build Living Dungeon Godot APK` workflow.
 
@@ -141,14 +141,14 @@ Godot 4.4 does not store the canvas sampling filter in `.import`. Mipmaps and lo
 LivingDungeonPixelArt.configure(sprite)
 ```
 
-That helper lives in `tools/pixel_filter.gd`. The current dungeon does not call it. Turning nearest on for the whole project is this `project.godot` line, and it is intentionally **not** set yet because it would also resample the placeholder art:
+That helper lives in `tools/pixel_filter.gd`. The world calls it, and the project default is nearest:
 
 ```ini
 [rendering]
 textures/canvas_textures/default_texture_filter=0
 ```
 
-`0` is Nearest. The engine default is `1` (Linear).
+`0` is Nearest. The engine default is `1` (Linear). The minimap rect sets its own filter.
 
 ```bash
 python3 projects/dungeon_godot/tools/assets.py self-test
@@ -157,7 +157,7 @@ python3 projects/dungeon_godot/tools/assets.py check-screenshot screenshots/*.pn
 
 ## Legacy encoded art
 
-`tools/build_assets.py` is unchanged. If `assets_payload/*.b85` exists, it zlib-decodes those payloads into flat `art/<name>.png` files. The new pipeline writes subfolders (`art/tiles/`, `art/units/<faction>/`, `art/buildings/`, `art/fx/`) and does not remove those flat files. The running game never loads either set; `world.gd` still builds textures from `art_tiles.gd` and `soldier_sprites.gd`.
+`tools/build_assets.py` is unchanged. If `assets_payload/*.b85` exists, it zlib-decodes those payloads into flat `art/<name>.png` files. The running game loads `art/tiles/`, `art/units/<faction>/`, `art/buildings/`, and `art/fx/` produced by `tools/build_visual_art.py`. Nearest sampling is the project default (`textures/canvas_textures/default_texture_filter=0`) and `LivingDungeonPixelArt.configure` is called on the world.
 
 ## CI
 

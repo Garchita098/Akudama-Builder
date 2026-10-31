@@ -16,4 +16,4 @@ The first foundation implementation is in `projects/dungeon_godot/`. The project
 - Godot editor command parses/imports scenes without script errors.
 - Godot Android export produces `Living-Dungeon-Godot-APK`.
 - APK is installed and opened on Android before any version is described as playable.
-- No generated art sheets have been integrated into this first Godot project; graphics are procedural placeholders.
+- Terrain, units, settlements and effects use sliced pixel-art textures (see `CREDITS.md`). Save data is still the tile simulation, not the art.

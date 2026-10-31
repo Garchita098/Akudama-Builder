@@ -1,10 +1,10 @@
 extends Node2D
-const AtlasTiles = preload("res://art_tiles.gd")
-const SoldierSprites = preload("res://soldier_sprites.gd")
-# Living Dungeon: Godot foundation. Entire world renders procedurally.
+const Art = preload("res://presentation.gd")
+# Living Dungeon. Simulation is tile-based; pixels below are presentation only.
 const GRID := Vector2i(96, 96)
-const TILE := 30.0
+const TILE := 32.0
 const FACTIONS := [Color("#5bbdf1"), Color("#ed6969"), Color("#8fd878")]
+const BIOME_TINT := [Color(0.94, 0.9, 1.04), Color(0.78, 1.08, 0.76), Color(1.1, 0.84, 0.72), Color(0.72, 0.9, 1.14)]
 const TEAM_NAMES := ["Azure", "Crimson", "Verdant"]
 const GIVEN_NAMES := ["Aldric","Veyra","Morwen","Kael","Eryn","Darian","Sable","Rhun","Nyx","Orin","Mara","Thorne"]
 const TRAITS := ["Brave","Cautious","Greedy","Loyal","Curious","Ruthless"]
@@ -13,10 +13,12 @@ const PROFESSIONS := ["Warrior","Scout","Guardian","Worker","Hunter"]
 const EQUIPMENT := ["Rusty sword","Iron spear","Leather armor","Hunter bow","Steel blade"]
 var terrain: Array = []
 var biomes: Array = []
-var art_textures: Array[Texture2D] = []
-var faction_sprites: Array[Texture2D] = []
-var creature_sprites: Array[Texture2D] = []
-var animated_glow := 0.0
+var art
+var facing := {}
+var seen_hp := {}
+var hit_flash := {}
+var dust: CPUParticles2D
+var vignette: ColorRect
 var minimap: TextureRect
 var minimap_img: Image
 var minimap_tex: ImageTexture
@@ -55,12 +57,12 @@ var dragging := false
 var seed_value := 0
 
 func _ready() -> void:
-    art_textures = AtlasTiles.build()
-    faction_sprites = SoldierSprites.build()
-    creature_sprites = make_creature_sprites()
+    art = Art.new()
+    art.load_all()
+    art.configure(self)
     camera = Camera2D.new()
     camera.position = Vector2(30,30) * TILE
-    camera.zoom = Vector2(0.93, 0.93)
+    camera.zoom = Vector2.ONE
     camera.enabled = true
     add_child(camera)
     hud = CanvasLayer.new()
@@ -69,23 +71,30 @@ func _ready() -> void:
     overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
     hud.add_child(overlay)
+    vignette = ColorRect.new()
+    vignette.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    vignette.color = Color(1, 1, 1, 1)
+    var vignette_mat := ShaderMaterial.new()
+    vignette_mat.shader = load("res://shaders/vignette.gdshader")
+    vignette.material = vignette_mat
+    overlay.add_child(vignette)
     var header := PanelContainer.new()
-    header.position = Vector2(10, 42)
-    header.size = Vector2(700, 108)
+    header.position = Vector2(10, 28)
+    header.size = Vector2(700, 124)
     overlay.add_child(header)
     stylize_panel(header,Color("#131b28"))
     var headbox := VBoxContainer.new()
     header.add_child(headbox)
     var title := Label.new()
-    title.text = "LIVING DUNGEON  /  GODOT 1.0"
-    title.add_theme_font_size_override("font_size", 24)
-    title.add_theme_color_override("font_color", Color("#e2c49a"))
+    title.text = "LIVING DUNGEON"
+    theme_label(title, 48, Color("#f0d7a2"))
     headbox.add_child(title)
     status = Label.new()
-    status.add_theme_font_size_override("font_size", 19)
+    theme_label(status, 32, Color("#e6dcc8"))
     headbox.add_child(status)
     var map_border := PanelContainer.new()
-    map_border.position = Vector2(530,165)
+    map_border.position = Vector2(530,164)
     map_border.size = Vector2(174,174)
     overlay.add_child(map_border)
     stylize_panel(map_border,Color("#171c2b"))
@@ -94,6 +103,7 @@ func _ready() -> void:
     minimap.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
     minimap.stretch_mode = TextureRect.STRETCH_SCALE
     minimap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    minimap.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
     map_border.add_child(minimap)
     minimap_img = Image.create(GRID.x,GRID.y,false,Image.FORMAT_RGBA8)
     minimap_tex = ImageTexture.create_from_image(minimap_img)
@@ -106,7 +116,7 @@ func _ready() -> void:
     var stack := VBoxContainer.new()
     bottom.add_child(stack)
     details = Label.new()
-    details.add_theme_font_size_override("font_size", 23)
+    theme_label(details, 32, Color("#f3e6c8"))
     details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     stack.add_child(details)
     var buttons := HBoxContainer.new()
@@ -141,9 +151,8 @@ func _ready() -> void:
     stylize_button(god_team_button)
     var action_hint := Label.new()
     action_hint.text = "Choose a power, then tap a tile on the map"
-    action_hint.add_theme_font_size_override("font_size",21)
+    theme_label(action_hint, 32, Color("#ffe0a3"))
     tool_hint = action_hint
-    tool_hint.add_theme_color_override("font_color",Color("#ffe0a3"))
     stack.add_child(action_hint)
     var save_button := Button.new()
     save_button.text = "Save"
@@ -156,62 +165,75 @@ func _ready() -> void:
     buttons.add_child(load_button)
     stylize_button(load_button)
     rng.randomize()
+    _make_dust()
     generate()
 
-func stylize_panel(panel: PanelContainer, fill: Color) -> void:
-    var style := StyleBoxFlat.new()
-    style.bg_color = Color(fill.r,fill.g,fill.b,0.92)
-    style.border_color = Color("#b78b54")
-    style.set_border_width_all(2)
-    style.corner_radius_top_left = 5
-    style.corner_radius_top_right = 5
-    style.corner_radius_bottom_left = 5
-    style.corner_radius_bottom_right = 5
-    style.set_content_margin_all(7)
-    panel.add_theme_stylebox_override("panel",style)
+func theme_label(label: Label, size: int, color: Color) -> void:
+    label.add_theme_font_size_override("font_size", size)
+    label.add_theme_color_override("font_color", color)
+    if art != null and art.font != null:
+        label.add_theme_font_override("font", art.font)
+
+func stylize_panel(panel: PanelContainer, _fill: Color) -> void:
+    var style := StyleBoxTexture.new()
+    style.texture = art.panel
+    style.texture_margin_left = 8
+    style.texture_margin_top = 8
+    style.texture_margin_right = 8
+    style.texture_margin_bottom = 8
+    style.set_content_margin_all(10)
+    panel.add_theme_stylebox_override("panel", style)
+    art.configure(panel)
 
 func stylize_button(btn: Button) -> void:
-    btn.add_theme_font_size_override("font_size",19)
-    btn.add_theme_color_override("font_color",Color("#f4e2c7"))
-    var style := StyleBoxFlat.new()
-    style.bg_color = Color("#273044")
-    style.border_color = Color("#916f4c")
-    style.set_border_width_all(1)
-    style.set_content_margin_all(7)
-    btn.add_theme_stylebox_override("normal",style)
-    var hover := style.duplicate()
-    hover.bg_color = Color("#4a3440")
-    btn.add_theme_stylebox_override("hover",hover)
-    btn.add_theme_stylebox_override("pressed",hover)
+    theme_button(btn)
+    var normal := _button_style(art.button)
+    var pressed := _button_style(art.button_pressed)
+    btn.add_theme_stylebox_override("normal", normal)
+    btn.add_theme_stylebox_override("hover", pressed)
+    btn.add_theme_stylebox_override("pressed", pressed)
+    btn.add_theme_stylebox_override("focus", normal)
+    btn.custom_minimum_size = Vector2(0, 44)
+    art.configure(btn)
 
-func make_creature_sprites() -> Array[Texture2D]:
-    var result: Array[Texture2D] = []
-    for monster_kind in range(2):
-        var img := Image.create(28,32,false,Image.FORMAT_RGBA8)
-        img.fill(Color.TRANSPARENT)
-        var body: Color = Color("#865cba") if monster_kind == 0 else Color("#9d3935")
-        var dark: Color = body.darkened(0.55)
-        for yy in range(8,27):
-            for xx in range(4,24):
-                var cx: float = float(xx-14)/11.0
-                var cy: float = float(yy-18)/13.0
-                if cx*cx+cy*cy < 0.9:
-                    img.set_pixel(xx,yy,dark if (xx+yy)%5==0 else body)
-        for xx in range(7,21):
-            for yy in range(7,15):
-                if abs(xx-14)+abs(yy-11) < 9:
-                    img.set_pixel(xx,yy,Color("#d8c5af"))
-        for xx in [10,18]:
-            img.set_pixel(xx,11,Color("#ff4a60") if monster_kind == 1 else Color("#abf7e9"))
-            img.set_pixel(xx,12,Color("#2e1018"))
-        for yy in range(2,11):
-            img.set_pixel(5+int(yy/3),yy,Color("#e9d2c1"))
-            img.set_pixel(22-int(yy/3),yy,Color("#e9d2c1"))
-        for yy in range(25,30):
-            for xx in [8,9,18,19]:
-                img.set_pixel(xx,yy,dark)
-        result.append(ImageTexture.create_from_image(img))
-    return result
+func theme_button(btn: Button) -> void:
+    btn.add_theme_font_size_override("font_size", 32)
+    btn.add_theme_color_override("font_color", Color("#f4e6cc"))
+    btn.add_theme_color_override("font_hover_color", Color("#fff4d8"))
+    btn.add_theme_color_override("font_pressed_color", Color("#fff4d8"))
+    if art != null and art.font != null:
+        btn.add_theme_font_override("font", art.font)
+
+func _button_style(texture: Texture2D) -> StyleBoxTexture:
+    var style := StyleBoxTexture.new()
+    style.texture = texture
+    style.texture_margin_left = 6
+    style.texture_margin_top = 6
+    style.texture_margin_right = 6
+    style.texture_margin_bottom = 6
+    style.set_content_margin_all(6)
+    return style
+
+func _make_dust() -> void:
+    dust = CPUParticles2D.new()
+    dust.texture = art.mote
+    dust.amount = 24
+    dust.lifetime = 5.5
+    dust.preprocess = 2.5
+    dust.explosiveness = 0.0
+    dust.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+    dust.emission_rect_extents = Vector2(460, 700)
+    dust.direction = Vector2(0, -1)
+    dust.spread = 28.0
+    dust.gravity = Vector2(0, -4)
+    dust.initial_velocity_min = 8.0
+    dust.initial_velocity_max = 18.0
+    dust.scale_amount_min = 1.0
+    dust.scale_amount_max = 2.0
+    dust.color = Color(1, 0.86, 0.62, 0.3)
+    dust.local_coords = true
+    camera.add_child(dust)
+    art.configure(dust)
 
 func generate() -> void:
     seed_value = rng.randi()
@@ -280,6 +302,8 @@ func accessible(p: Vector2i) -> bool:
     return true
 
 func _process(delta: float) -> void:
+    _track_hits()
+    _tint_dust()
     if speed == 0:
         queue_redraw()
         return
@@ -479,6 +503,7 @@ func update_magic() -> void:
                 mage.xp += 2
                 mage.memory = "Cast a hex on " + str(victim.name)
                 events = str(mage.name) + " casts a shadow hex!"
+                effect_marks.append({"p": victim.p, "kind": 7, "until_ms": Time.get_ticks_msec() + 1100})
     if turn % 35 == 0:
         for necro in fighters:
             if str(necro.profession) != "Necromancer" or int(necro.hp) <= 0:
@@ -494,6 +519,7 @@ func update_magic() -> void:
                 necro.xp += 3
                 next_unit_id += 1
                 events = str(necro.name) + " raises an undead servant!"
+                effect_marks.append({"p": spawn, "kind": 1, "until_ms": Time.get_ticks_msec() + 1100})
     if turn % 90 == 0:
         calamity = rng.randi_range(1,3)
         catastrophe_until = turn + 22
@@ -604,10 +630,10 @@ func update_economy() -> void:
 func update_minimap() -> void:
     if minimap_img == null or terrain.size() != GRID.y:
         return
-    var shades := [Color("#42495b"),Color("#35523e"),Color("#503c53"),Color("#674831")]
+    var shades := [Color("#3c343c"), Color("#2a4a32"), Color("#5a382c"), Color("#243e52")]
     for y in range(GRID.y):
         for x in range(GRID.x):
-            var color: Color = Color("#171d27") if terrain[y][x] == 1 else shades[int(biomes[y][x])]
+            var color: Color = Color("#14110f") if terrain[y][x] == 1 else shades[int(biomes[y][x])]
             minimap_img.set_pixel(x,y,color)
     for b in settlements:
         var bp: Vector2i = b.p
@@ -628,10 +654,10 @@ func refresh() -> void:
     for f in fighters:
         counts[f.team] += 1
     status.text = "TURN %d  |  KILLS %d  |  BLUE %d  RED %d  GREEN %d" % [turn, deaths, counts[0], counts[1], counts[2]]
-    var economy := "  |  "
+    var economy := ""
     for b in settlements:
-        economy += TEAM_NAMES[int(b.team)].substr(0,1) + ":F" + str(b.food) + "/W" + str(b.wood) + "/S" + str(b.stone) + " "
-    details.text = events + "\n" + economy + " | GOD " + str(god_power)
+        economy += TEAM_NAMES[int(b.team)].substr(0,1) + " F" + str(b.food) + " W" + str(b.wood) + " S" + str(b.stone) + "   "
+    details.text = events + "\n" + economy + "GOD " + str(god_power)
     if selected >= 0:
         for f in fighters:
             if f.id == selected:
@@ -639,127 +665,370 @@ func refresh() -> void:
                 break
     queue_redraw()
 
-func draw_ellipse_shadow(center: Vector2) -> void:
-    draw_circle(center,11,Color(0,0,0,0.34))
+func _track_hits() -> void:
+    var now := Time.get_ticks_msec()
+    for f in fighters:
+        var id := int(f.id)
+        var hp := int(f.hp)
+        if seen_hp.has(id) and hp < int(seen_hp[id]):
+            hit_flash[id] = now + 140
+        seen_hp[id] = hp
+    for m in monsters:
+        var hp := int(m.hp)
+        if m.has("seen_hp") and hp < int(m.seen_hp):
+            m["flash_until"] = now + 140
+        m["seen_hp"] = hp
+
+func _tint_dust() -> void:
+    if dust == null:
+        return
+    if calamity == 1:
+        dust.color = Color(0.55, 1.0, 0.4, 0.45)
+    elif calamity == 2:
+        dust.color = Color(1.0, 0.32, 0.32, 0.42)
+    elif calamity == 3:
+        dust.color = Color(0.55, 0.75, 1.0, 0.48)
+    else:
+        dust.color = Color(1, 0.86, 0.62, 0.28)
+
+func cell_is_wall(cx: int, cy: int) -> bool:
+    if cx < 0 or cy < 0 or cx >= GRID.x or cy >= GRID.y:
+        return true
+    return int(terrain[cy][cx]) == 1
+
+func is_torch(x: int, y: int) -> bool:
+    if not cell_is_wall(x, y):
+        return false
+    if y + 1 >= GRID.y or cell_is_wall(x, y + 1):
+        return false
+    return (x * 13 + y * 29) % 7 == 0
 
 func _draw() -> void:
+    if art == null or not art.ready or terrain.is_empty():
+        return
     var world_span: Vector2 = get_viewport_rect().size / camera.zoom
     var start_world: Vector2 = camera.get_screen_center_position() - world_span * 0.5
-    var xmin: int = maxi(0,floori(start_world.x / TILE)-2)
-    var ymin: int = maxi(0,floori(start_world.y / TILE)-2)
-    var xmax: int = mini(GRID.x,ceili((start_world.x+world_span.x)/TILE)+3)
-    var ymax: int = mini(GRID.y,ceili((start_world.y+world_span.y)/TILE)+3)
-    for y in range(ymin,ymax):
-        for x in range(xmin,xmax):
-            var p := Vector2(x, y) * TILE
-            var variation: int = (x * 71 + y * 31 + x * y) % 7
-            var tile_index: int = 4 if terrain[y][x] == 1 else int(biomes[y][x])
-            if art_textures.size() == 5:
-                var sprite_index: int = tile_index
-                if tile_index == 2 and variation % 4 != 0:
-                    sprite_index = 0
-                draw_texture_rect(art_textures[sprite_index],Rect2(p,Vector2(TILE,TILE)),false)
-                if terrain[y][x] == 0 and variation % 5 == 0:
-                    draw_rect(Rect2(p+Vector2(4,25),Vector2(7,2)),Color(0.1,0.1,0.1,0.26))
-                if terrain[y][x] == 1:
-                    draw_line(p+Vector2(2,2),p+Vector2(28,2),Color("#b5b4a4"),2)
-                elif variation % 7 == 3 and biomes[y][x] == 1:
-                    draw_line(p+Vector2(12,24),p+Vector2(15,17),Color("#acc375"),2)
+    var xmin: int = maxi(0, floori(start_world.x / TILE) - 2)
+    var ymin: int = maxi(0, floori(start_world.y / TILE) - 2)
+    var xmax: int = mini(GRID.x, ceili((start_world.x + world_span.x) / TILE) + 3)
+    var ymax: int = mini(GRID.y, ceili((start_world.y + world_span.y) / TILE) + 3)
+    var lights := _collect_lights(xmin, ymin, xmax, ymax)
+    var claims: Array = []
+    var now := Time.get_ticks_msec()
+    var wall_fn := Callable(self, "cell_is_wall")
+    for y in range(ymin, ymax):
+        for x in range(xmin, xmax):
+            var origin := Vector2(x, y) * TILE
+            var mod := _shade(x, y, lights, claims)
+            var floor_tex: Texture2D = art.floors[(x * 3 + y * 5) % art.floors.size()]
+            draw_texture_rect(floor_tex, Rect2(origin, Vector2(TILE, TILE)), false, mod)
+            if cell_is_wall(x, y):
+                var wall_tex: Texture2D = art.wall_texture(x, y, wall_fn)
+                if wall_tex:
+                    draw_texture_rect(wall_tex, Rect2(origin, Vector2(TILE, TILE)), false, mod)
             else:
-                draw_rect(Rect2(p,Vector2(TILE,TILE)),Color("#313744"))
-    for base in settlements:
-        var origin: Vector2 = Vector2(base.p) * TILE
-        var color: Color = FACTIONS[int(base.team)]
-        draw_arc(origin + Vector2(TILE/2,TILE/2),float(base.territory)*TILE,0,TAU,84,Color(color.r,color.g,color.b,0.16),3)
-        draw_rect(Rect2(origin - Vector2(13,17),Vector2(55,54)),Color("#10131a"))
-        for wall_x in [-12,30]:
-            draw_rect(Rect2(origin+Vector2(wall_x,-21),Vector2(12,47)),Color("#526071"))
-            draw_rect(Rect2(origin+Vector2(wall_x-3,-25),Vector2(18,7)),Color("#8d9ba5"))
-        draw_rect(Rect2(origin - Vector2(5,1),Vector2(40,29)),Color("#667281"))
-        draw_rect(Rect2(origin + Vector2(5,-16),Vector2(20,27)),color)
-        draw_rect(Rect2(origin + Vector2(11,13),Vector2(10,20)),Color("#10131a"))
-        draw_rect(Rect2(origin + Vector2(-5,-1),Vector2(40,4)),Color("#d3b888"))
-        draw_rect(Rect2(origin + Vector2(14,-24),Vector2(3,13)),Color("#d7d4cb"))
+                _draw_floor_decal(x, y, origin, mod)
     for node in resource_nodes:
         if int(node.amount) <= 0:
             continue
-        var p: Vector2 = Vector2(node.p)*TILE
-        var tint: Color = [Color("#94704e"),Color("#8b96a6"),Color("#899c56")][int(node.type)]
-        draw_circle(p + Vector2(15,15),5.0,tint)
+        var np: Vector2i = node.p
+        if np.x < xmin or np.y < ymin or np.x >= xmax or np.y >= ymax:
+            continue
+        var tex: Texture2D = art.crate
+        if int(node.type) == 1:
+            tex = art.rock
+        elif int(node.type) == 2:
+            tex = art.mushroom
+        var foot := Vector2(np) * TILE + Vector2(TILE * 0.5, TILE - 1.0)
+        _draw_sprite(tex, foot, _shade(np.x, np.y, lights, claims), false)
     for ruin in ruins:
-        if ruin.x < xmin or ruin.y < ymin or ruin.x > xmax or ruin.y > ymax:
+        if ruin.x < xmin or ruin.y < ymin or ruin.x >= xmax or ruin.y >= ymax:
             continue
-        var rp: Vector2 = Vector2(ruin)*TILE
-        draw_rect(Rect2(rp-Vector2(5,7),Vector2(41,42)),Color("#191522"))
-        draw_rect(Rect2(rp+Vector2(0,-9),Vector2(32,8)),Color("#716071"))
-        draw_rect(Rect2(rp+Vector2(4,5),Vector2(24,28)),Color("#433049"))
-        draw_circle(rp+Vector2(16,18),8,Color("#9d53b2"))
-        draw_circle(rp+Vector2(16,18),4,Color("#24122e"))
-    if calamity != 0:
-        draw_rect(Rect2(Vector2.ZERO,Vector2(GRID)*TILE),Color(0.22,0.02,0.12,0.10 if calamity == 2 else 0.05))
-    for mark in effect_marks:
-        var center: Vector2 = Vector2(mark.p) * TILE + Vector2(15,15)
-        var time_left: float = clampf(float(int(mark.until_ms) - Time.get_ticks_msec()) / 1350.0,0.0,1.0)
-        var radius: float = lerpf(10.0,75.0,1.0-time_left)
-        var kind: int = int(mark.kind)
-        var power_color: Color = Color("#fff2a5") if kind == 4 else (Color("#72ddff") if kind == 5 else Color("#ec75e0"))
-        draw_circle(center,14.0 + 30.0*time_left,Color(power_color.r,power_color.g,power_color.b,0.20*time_left))
-        draw_arc(center,radius,0,TAU,40,Color(power_color.r,power_color.g,power_color.b,time_left),5)
-        if kind == 4:
-            for spark in range(14):
-                var angle: float = float(spark) * TAU / 14.0
-                var travel: float = (1.0-time_left)*115.0
-                var outward: Vector2 = Vector2(cos(angle),sin(angle))
-                draw_circle(center + outward*travel,float(2+spark%3)*time_left+1,Color("#ffc25b"))
-            draw_line(center-Vector2(56,180)*time_left,center,Color("#ffb23a"),maxf(3.0,14.0*time_left))
-            draw_circle(center,9.0+28.0*time_left,Color("#ff7b2e"))
-            draw_arc(center,radius*0.75,0,TAU,32,Color("#ffe89b"),3)
-        elif kind == 6:
-            for cloud_idx in range(8):
-                var phi: float = float(cloud_idx)*TAU/8.0
-                var cloud_pos: Vector2 = center + Vector2(cos(phi),sin(phi))*(24.0+40.0*(1.0-time_left))
-                draw_circle(cloud_pos,10.0*time_left+4.0,Color(0.40,0.94,0.18,0.47*time_left))
-        elif kind == 3:
-            for ray in range(10):
-                var ray_pos: Vector2 = center+Vector2(cos(float(ray)*TAU/10.0),sin(float(ray)*TAU/10.0))*40.0
-                draw_line(ray_pos,ray_pos-Vector2(0,55.0*time_left),Color(1.0,0.86,0.39,time_left),2)
-        elif kind == 5:
-            draw_rect(Rect2(Vector2(mark.p)*TILE,Vector2(TILE,TILE)),Color("#9ee8ff"))
-            draw_arc(center,24,0,TAU,20,Color("#ffffff"),3)
-    var tween: float = clamp(sim_accum / 0.55, 0.0, 1.0)
+        var origin := Vector2(ruin) * TILE
+        draw_texture_rect(art.hole, Rect2(origin, Vector2(TILE, TILE)), false, _shade(ruin.x, ruin.y, lights, claims))
+    _draw_light_pools(lights)
+    for base in settlements:
+        var color: Color = FACTIONS[int(base.team)]
+        color.a = 0.28
+        var center := Vector2(base.p) * TILE + Vector2(TILE * 0.5, TILE * 0.5)
+        draw_arc(center, float(base.territory) * TILE, 0, TAU, 72, color, 2.0)
+    var tween := clampf(sim_accum / 0.55, 0.0, 1.0)
     tween = tween * tween * (3.0 - 2.0 * tween)
+    var actors: Array = []
+    for base in settlements:
+        actors.append({"y": float(base.p.y), "kind": "keep", "d": base})
+    for ruin in ruins:
+        actors.append({"y": float(ruin.y) + 0.15, "kind": "portal", "d": ruin})
     for m in monsters:
-        if m.p.x < xmin or m.p.x > xmax or m.p.y < ymin or m.p.y > ymax:
+        if int(m.hp) <= 0:
             continue
-        var mp: Vector2 = Vector2(m.old).lerp(Vector2(m.p),tween)*TILE
-        var creature_kind: int = 1 if int(m.kind) == 2 else 0
-        draw_circle(mp+Vector2(15,26),12,Color(0,0,0,0.36))
-        if creature_sprites.size() == 2:
-            var bob: float = sin(float(Time.get_ticks_msec()) / 250.0 + float(m.p.x))*1.7
-            draw_texture_rect(creature_sprites[creature_kind],Rect2(mp-Vector2(2,13+bob),Vector2(34,43)),false)
-        else:
-            draw_circle(mp+Vector2(15,15),12,Color("#8a3e6e"))
+        var my := lerpf(float(m.old.y), float(m.p.y), tween)
+        actors.append({"y": my, "kind": "monster", "d": m})
     for f in fighters:
-        if f.p.x < xmin or f.p.x > xmax or f.p.y < ymin or f.p.y > ymax:
+        if int(f.hp) <= 0:
             continue
-        var from: Vector2 = Vector2(f.old)
-        var to: Vector2 = Vector2(f.p)
-        var p: Vector2 = from.lerp(to,tween) * TILE + Vector2(4,3)
-        var cloak: Color = FACTIONS[f.team]
-        draw_ellipse_shadow(p + Vector2(12,23))
-        if faction_sprites.size() == 3:
-            draw_texture_rect(faction_sprites[int(f.team)],Rect2(p - Vector2(9,15),Vector2(41,51)),false)
-            if str(f.profession).to_lower().contains("mage") or str(f.profession).to_lower().contains("necro"):
-                draw_circle(p + Vector2(27,2),5,Color("#aa67e9"))
-            elif str(f.profession).to_lower().contains("worker"):
-                draw_rect(Rect2(p+Vector2(24,12),Vector2(5,10)),Color("#d2a15a"))
-        else:
-            draw_rect(Rect2(p + Vector2(5,7),Vector2(15,17)),cloak)
-        if f.hp < 5:
-            draw_rect(Rect2(p + Vector2(2,-4),Vector2(24,3)),Color("#632d35"))
-            draw_rect(Rect2(p + Vector2(2,-4),Vector2(24.0 * f.hp / 5.0,3)),Color("#aee087"))
-        if f.id == selected:
-            draw_arc(p + Vector2(12,12),15,0,TAU,24,Color("#f5d789"),2)
+        var fy := lerpf(float(f.old.y), float(f.p.y), tween)
+        actors.append({"y": fy, "kind": "unit", "d": f})
+    actors.sort_custom(func(a, b): return float(a.y) < float(b.y))
+    for actor in actors:
+        match str(actor.kind):
+            "keep":
+                _draw_keep(actor.d, lights, claims)
+            "portal":
+                _draw_portal(actor.d, now, lights, claims)
+            "monster":
+                _draw_monster(actor.d, tween, now, lights, claims)
+            "unit":
+                _draw_unit(actor.d, tween, now, lights, claims)
+    for mark in effect_marks:
+        _draw_effect(mark, now)
+    if calamity == 3 and now % 680 < 90:
+        _draw_bolts(now)
+    for x in range(xmin, xmax):
+        for y in range(ymin, ymax):
+            if is_torch(x, y):
+                var frame: Texture2D = art.frame_at(art.torch, now, 140)
+                var foot := Vector2(x, y) * TILE + Vector2(TILE * 0.5, TILE - 2.0)
+                _draw_sprite(frame, foot, Color(1.15, 1.05, 0.9), false)
+
+func _draw_floor_decal(x: int, y: int, origin: Vector2, mod: Color) -> void:
+    var roll := (x * 17 + y * 31) % 47
+    var decal: Texture2D = null
+    var biome := int(biomes[y][x]) if biomes.size() == GRID.y else 0
+    if roll == 0:
+        decal = art.skull
+    elif roll == 1:
+        decal = art.bones
+    elif roll == 2 and biome == 1:
+        decal = art.moss
+    elif roll == 3 and biome == 2:
+        decal = art.ember
+    elif roll == 4 and biome == 3:
+        decal = art.puddle
+    elif roll == 5 and biome == 1:
+        decal = art.moss
+    if decal:
+        draw_texture_rect(decal, Rect2(origin, Vector2(TILE, TILE)), false, mod)
+
+func _draw_keep(base: Dictionary, lights: Array, claims: Array) -> void:
+    var tex: Texture2D = art.keep_texture(int(base.level), int(base.team))
+    var foot := Vector2(base.p) * TILE + Vector2(TILE * 0.5, TILE - 2.0)
+    var mod := _shade(int(base.p.x), int(base.p.y), lights, claims)
+    _draw_ground_shadow(foot, float(tex.get_width()) * 1.4)
+    _draw_sprite(tex, foot, mod, false)
+
+func _draw_portal(ruin: Vector2i, now: int, lights: Array, claims: Array) -> void:
+    var frame: Texture2D = art.frame_at(art.portal, now, 160)
+    var foot := Vector2(ruin) * TILE + Vector2(TILE * 0.5, TILE - 1.0)
+    _draw_sprite(frame, foot, _shade(ruin.x, ruin.y, lights, claims), false)
+
+func _draw_monster(m: Dictionary, tween: float, now: int, lights: Array, claims: Array) -> void:
+    var moving: bool = m.p != m.old
+    var frames: Array = art.monster_frames(int(m.kind), moving)
+    var tex: Texture2D = art.frame_at(frames, now, 130 if moving else 240)
+    if tex == null:
+        return
+    var pos := Vector2(m.old).lerp(Vector2(m.p), tween)
+    var foot := pos * TILE + Vector2(TILE * 0.5, TILE - 1.0)
+    var face := 1
+    if m.p.x < m.old.x:
+        face = -1
+    elif m.p.x > m.old.x:
+        face = 1
+    var mod := _shade(int(m.p.x), int(m.p.y), lights, claims)
+    if int(m.get("flash_until", 0)) > now:
+        mod = Color(1.8, 1.7, 1.6)
+    _draw_ground_shadow(foot, float(tex.get_width()) * 1.5)
+    if face < 0:
+        foot.x -= 2.0
+    _draw_sprite(tex, foot, mod, face < 0)
+
+func _draw_unit(f: Dictionary, tween: float, now: int, lights: Array, claims: Array) -> void:
+    var moving: bool = f.p != f.old
+    var attacking := _in_melee(f)
+    var frames: Array = art.unit_frames(int(f.team), str(f.profession), int(f.get("role", 0)), moving, attacking)
+    var speed_ms := 120 if moving else (160 if attacking else 260)
+    var tex: Texture2D = art.frame_at(frames, now, speed_ms)
+    if tex == null:
+        return
+    var id := int(f.id)
+    if f.p.x < f.old.x:
+        facing[id] = -1
+    elif f.p.x > f.old.x:
+        facing[id] = 1
+    elif not facing.has(id):
+        facing[id] = 1
+    var face := int(facing[id])
+    var pos := Vector2(f.old).lerp(Vector2(f.p), tween)
+    var foot := pos * TILE + Vector2(TILE * 0.5, TILE - 1.0)
+    if attacking:
+        foot.x += float(face) * 3.0
+    var mod := _shade(int(f.p.x), int(f.p.y), lights, claims)
+    if int(hit_flash.get(id, 0)) > now:
+        mod = Color(1.85, 1.75, 1.6)
+    _draw_ground_shadow(foot, float(tex.get_width()) * 1.6)
+    _draw_sprite(tex, foot, mod, face < 0)
+    if int(f.hp) < 5:
+        var bar := foot + Vector2(-12, -float(tex.get_height()) * 2.0 - 6.0)
+        draw_rect(Rect2(bar, Vector2(24, 3)), Color("#3a1818"))
+        draw_rect(Rect2(bar, Vector2(24.0 * float(f.hp) / 5.0, 3)), Color("#b6e08a"))
+    if f.id == selected and art.select_ring:
+        var ring := Rect2(foot.x - 18.0, foot.y - 28.0, 36, 36)
+        draw_texture_rect(art.select_ring, ring, false, Color(1, 0.92, 0.7, 0.95))
+
+func _draw_effect(mark: Dictionary, now: int) -> void:
+    var left := clampf(float(int(mark.until_ms) - now) / 1100.0, 0.0, 1.0)
+    var center := Vector2(mark.p) * TILE + Vector2(TILE * 0.5, TILE * 0.5)
+    var kind := int(mark.kind)
+    var frames: Array = art.fire
+    var tint := Color(1, 0.7, 0.3, left)
+    if kind == 3:
+        frames = art.bless
+        tint = Color(1, 0.9, 0.5, left)
+    elif kind == 6 or kind == 7:
+        frames = art.plague if kind == 6 else art.hex
+        tint = Color(0.7, 1, 0.5, left) if kind == 6 else Color(0.8, 0.5, 1, left)
+    elif kind == 5:
+        frames = art.dust
+        tint = Color(0.9, 0.8, 0.7, left)
+    elif kind == 1 or kind == 2:
+        frames = art.bless if kind == 1 else art.hex
+        tint = Color(0.6, 0.85, 1, left) if kind == 1 else Color(1, 0.45, 0.4, left)
+    var frame: Texture2D = art.frame_at(frames, now, 90)
+    var size := lerpf(28.0, 78.0, 1.0 - left)
+    if frame:
+        draw_texture_rect(frame, Rect2(center - Vector2(size, size) * 0.5, Vector2(size, size)), false, tint)
+    if kind == 4 and not art.shock.is_empty():
+        var ring: Texture2D = art.shock[mini(art.shock.size() - 1, int((1.0 - left) * float(art.shock.size())))]
+        var shock := lerpf(20.0, 96.0, 1.0 - left)
+        draw_texture_rect(ring, Rect2(center - Vector2(shock, shock), Vector2(shock * 2.0, shock * 2.0)), false, Color(1, 0.8, 0.4, left))
+        draw_texture_rect(art.glow, Rect2(center - Vector2(48, 48), Vector2(96, 96)), false, Color(1, 0.45, 0.15, 0.55 * left))
+
+func _draw_bolts(now: int) -> void:
+    var origin := camera.get_screen_center_position()
+    for i in range(3):
+        var x := origin.x + float((now / 40 + i * 90) % 220) - 110.0
+        draw_line(Vector2(x, origin.y - 180), Vector2(x + 18, origin.y + 40), Color(0.75, 0.85, 1, 0.55), 2.0)
+
+func _draw_light_pools(lights: Array) -> void:
+    for light in lights:
+        var center: Vector2 = light.pos * TILE
+        var radius: float = float(light.radius) * TILE
+        var color: Color = light.color
+        color.a *= 0.14
+        draw_texture_rect(art.glow, Rect2(center - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)), false, color)
+
+func _draw_sprite(tex: Texture2D, foot: Vector2, mod: Color, flip: bool) -> void:
+    if tex == null:
+        return
+    var w := float(tex.get_width()) * 2.0
+    var h := float(tex.get_height()) * 2.0
+    var origin := Vector2(foot.x - w * 0.5, foot.y - h)
+    if flip:
+        draw_set_transform(Vector2(origin.x + w, origin.y), 0.0, Vector2(-1, 1))
+        draw_texture_rect(tex, Rect2(Vector2.ZERO, Vector2(w, h)), false, mod)
+        draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+    else:
+        draw_texture_rect(tex, Rect2(origin, Vector2(w, h)), false, mod)
+
+func _draw_ground_shadow(foot: Vector2, width: float) -> void:
+    var h := maxf(6.0, width * 0.22)
+    draw_texture_rect(art.shadow, Rect2(foot.x - width * 0.5, foot.y - h * 0.6, width, h), false, Color(1, 1, 1, 0.8))
+
+func _collect_lights(xmin: int, ymin: int, xmax: int, ymax: int) -> Array:
+    var lights: Array = []
+    for base in settlements:
+        lights.append({
+            "pos": Vector2(base.p) + Vector2(0.5, 0.45),
+            "radius": 4.2 + float(base.level) * 0.7,
+            "color": Color(1.0, 0.72, 0.42, 1.0),
+            "power": 0.85,
+        })
+    for ruin in ruins:
+        lights.append({
+            "pos": Vector2(ruin) + Vector2(0.5, 0.5),
+            "radius": 3.2,
+            "color": Color(0.72, 0.38, 1.0, 1.0),
+            "power": 0.7,
+        })
+    for mark in effect_marks:
+        var kind := int(mark.kind)
+        var color := Color(1, 0.6, 0.3)
+        if kind == 3:
+            color = Color(1, 0.9, 0.45)
+        elif kind == 6:
+            color = Color(0.5, 1, 0.35)
+        elif kind == 7 or kind == 2:
+            color = Color(0.7, 0.4, 1)
+        elif kind == 1:
+            color = Color(0.5, 0.8, 1)
+        lights.append({"pos": Vector2(mark.p) + Vector2(0.5, 0.5), "radius": 3.4, "color": color, "power": 0.9})
+    var torches := 0
+    for y in range(ymin, ymax):
+        for x in range(xmin, xmax):
+            if torches >= 18:
+                break
+            if is_torch(x, y):
+                lights.append({
+                    "pos": Vector2(x, y) + Vector2(0.5, 0.72),
+                    "radius": 3.3,
+                    "color": Color(1.0, 0.62, 0.28, 1.0),
+                    "power": 0.75,
+                })
+                torches += 1
+    return lights
+
+func _shade(x: int, y: int, lights: Array, claims: Array) -> Color:
+    var r := 0.84
+    var g := 0.8
+    var b := 0.9
+    var px := float(x) + 0.5
+    var py := float(y) + 0.5
+    for light in lights:
+        var lp: Vector2 = light.pos
+        var dx := px - lp.x
+        var dy := py - lp.y
+        var rad: float = light.radius
+        var d2 := dx * dx + dy * dy
+        if d2 >= rad * rad:
+            continue
+        var t := 1.0 - sqrt(d2) / rad
+        t *= t * float(light.power) * 0.55
+        var color: Color = light.color
+        r += color.r * t
+        g += color.g * t
+        b += color.b * t
+    if calamity == 1:
+        g += 0.08
+        r -= 0.04
+    elif calamity == 2:
+        r += 0.12
+        b -= 0.06
+    elif calamity == 3:
+        b += 0.1
+        r -= 0.02
+    var biome := 0
+    if biomes.size() == GRID.y and x >= 0 and y >= 0 and x < GRID.x and y < GRID.y:
+        biome = clampi(int(biomes[y][x]), 0, 3)
+    var tint: Color = BIOME_TINT[biome]
+    r *= tint.r
+    g *= tint.g
+    b *= tint.b
+    return Color(clampf(r, 0.45, 1.2), clampf(g, 0.45, 1.2), clampf(b, 0.45, 1.2), 1.0)
+
+func _in_melee(f: Dictionary) -> bool:
+    for other in fighters:
+        if int(other.hp) <= 0 or int(other.team) == int(f.team):
+            continue
+        if absi(int(other.p.x) - int(f.p.x)) + absi(int(other.p.y) - int(f.p.y)) == 1:
+            return true
+    for m in monsters:
+        if int(m.hp) <= 0:
+            continue
+        if absi(int(m.p.x) - int(f.p.x)) + absi(int(m.p.y) - int(f.p.y)) == 1:
+            return true
+    return false
+
 
 func cycle_god_mode() -> void:
     god_mode = (god_mode + 1) % 7
@@ -839,10 +1108,18 @@ func change_speed() -> void:
     speed = 2 if speed == 1 else (4 if speed == 2 else 1)
     if speed == 0:
         speed = 1
-    # Speed label is the second button in the bottom HBox.
-    var bottom: PanelContainer = hud.get_child(0).get_child(1)
-    var controls: HBoxContainer = bottom.get_child(0).get_child(1)
-    controls.get_child(1).text = "Speed x%d" % speed
+    var speed_button := _find_speed_button(hud)
+    if speed_button:
+        speed_button.text = "Speed x%d" % speed
+
+func _find_speed_button(node: Node) -> Button:
+    if node is Button and node.has_meta("speed_button"):
+        return node
+    for child in node.get_children():
+        var found := _find_speed_button(child)
+        if found:
+            return found
+    return null
 
 func save_world() -> void:
     var actors: Array = []
